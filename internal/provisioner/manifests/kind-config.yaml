@@ -1,0 +1,53 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  # 1. Control Plane
+  - role: control-plane
+
+  # 2. Infra Node (Tainted)
+  # For: Ingress controllers, cert-manager, etc.
+  - role: worker
+    labels:
+      hpc-sentinel/node-type: "infra"
+    taints:
+      - key: "node-role.kubernetes.io/infra"
+        value: "true"
+        effect: "NoSchedule"
+
+  # 3. Observability Node (Tainted)
+  # For: Prometheus, Grafana, Loki
+  - role: worker
+    labels:
+      hpc-sentinel/node-type: "observability"
+    taints:
+      - key: "node-role.kubernetes.io/observability"
+        value: "true"
+        effect: "NoSchedule"
+
+  # 4-5. Standard App Nodes (Untainted)
+  # For: Regular microservices or your operator manager pod
+  - role: worker
+    labels:
+      hpc-sentinel/node-type: "app"
+  - role: worker
+    labels:
+      hpc-sentinel/node-type: "app"
+
+  # 6-9. GPU Worker Nodes (Labeled)
+  # Target for the Fake GPU Operator & Sentinel monitoring
+  - role: worker
+    labels:
+      nvidia.com/gpu.present: "true"
+      hpc-sentinel/node-type: "gpu-worker"
+  - role: worker
+    labels:
+      nvidia.com/gpu.present: "true"
+      hpc-sentinel/node-type: "gpu-worker"
+  - role: worker
+    labels:
+      nvidia.com/gpu.present: "true"
+      hpc-sentinel/node-type: "gpu-worker"
+  - role: worker
+    labels:
+      nvidia.com/gpu.present: "true"
+      hpc-sentinel/node-type: "gpu-worker"
