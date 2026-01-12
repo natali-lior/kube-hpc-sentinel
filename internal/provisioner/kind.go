@@ -139,7 +139,57 @@ func (k *KindProvider) waitForNodes() error {
 }
 
 func (k *KindProvider) InstallAddons() error {
+	kubeconfig, err := k.Provider.KubeConfig(k.ClusterName, false)
+	if err != nil {
+		return err
+	}
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
+	if err != nil {
+		return err
+	}
+	log.Println("installing cluster addons...")
+	err = k.installFakeGpuOperator(restConfig)
+	if err != nil {
+		return err
+	}
+	err = k.installKubePrometheusStack(restConfig)
+	if err != nil {
+		return err
+	}
 	return nil
+}
+
+func (k *KindProvider) installFakeGpuOperator(restConfig *rest.Config) error {
+	return k.installChart(restConfig,
+		"fake-gpu",
+		"https://kindest.github.io/kube-fake-gpu",
+		"fake-gpu", "kube-system",
+		map[string]any{
+			"nodeSelector": map[string]string{"nvidia.com/gpu.present": "true"},
+		},
+	)
+}
+
+func (k *KindProvider) installKubePrometheusStack(restConfig *rest.Config) error {
+	promValues := map[string]any{
+		"prometheus": map[string]any{
+			"nodeSelector": map[string]string{"hpc-sentinel/node-type": "observability"},
+			"tolerations": []map[string]any{
+				{"key": "node-role.kubernetes.io/observability", "operator": "Exists", "effect": "NoSchedule"},
+			},
+		},
+		"grafana": map[string]any{
+			"nodeSelector": map[string]string{"hpc-sentinel/node-type": "observability"},
+			"tolerations": []map[string]any{
+				{"key": "node-role.kubernetes.io/observability", "operator": "Exists", "effect": "NoSchedule"},
+			},
+		},
+	}
+	return k.installChart(restConfig,
+		"prometheus-community",
+		"https://prometheus-community.github.io/helm-charts",
+		"kube-prometheus-stack", "monitoring", promValues,
+	)
 }
 
 func (k *KindProvider) installChart(
