@@ -6,4 +6,7 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: hpcjob-sample
 spec:
-  # TODO(user): Add fields here
+  image: nvidia/cuda:12.0-runtime
+  gpuCount: 4
+  constraints:
+    topology: nvlink

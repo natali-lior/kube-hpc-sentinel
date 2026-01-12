@@ -20,48 +20,58 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+var (
+	NVLINK              = "nvlink"
+	SupportedTopologies = []string{NVLINK}
 
-// HPCJobSpec defines the desired state of HPCJob
-type HPCJobSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-	// The following markers will use OpenAPI v3 schema to validate the value
-	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	Pending         = "Pending"
+	Running         = "Running"
+	Complete        = "Complete"
+	Failed          = "Failed"
+	SupportedPhases = []string{Pending, Running, Complete, Failed}
 
-	// foo is an example field of HPCJob. Edit hpcjob_types.go to remove/update
-	// +optional
-	Foo *string `json:"foo,omitempty"`
+	/* the resource is fully functional */
+	Available = "Available"
+	/* the resource is being created or updated */
+	Progressing = "Progressing"
+	/* the resource failed to reach or maintain its desired state */
+	Degraded            = "Degraded"
+	SupportedConditions = []string{Available, Progressing, Degraded}
+)
+
+var (
+	DefaultTopology = ""
+	DefaultPhase    = Pending
+)
+
+type SchedulingConstraints struct {
+	Topology string `json:"topology,omitempty"`
 }
 
-// HPCJobStatus defines the observed state of HPCJob.
-type HPCJobStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+type HPCJobSpec struct {
+	// Image is the CUDA/MPI container to run.
+	Image string `json:"image"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// GPUCount is the hardware floor. The operator will NOT schedule
+	// the pod unless a single node has at least this many healthy GPUs.
+	// +kubebuilder:validation:Minimum=1
+	GPUCount int32 `json:"gpuCount"`
 
-	// conditions represent the current state of the HPCJob resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
-	// The status of each condition is one of True, False, or Unknown.
-	// +listType=map
-	// +listMapKey=type
+	// Constraints defines networking and hardware placement requirements.
 	// +optional
+	Constraints SchedulingConstraints `json:"constraints,omitempty"`
+}
+
+type HPCJobStatus struct {
+	Phase string `json:"phase,omitempty"`
+	// Conditions represent the latest observations of the job's state.
+	// This is key for observability (Prometheus/Grafana integration).
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
-// HPCJob is the Schema for the hpcjobs API
 type HPCJob struct {
 	metav1.TypeMeta `json:",inline"`
 
