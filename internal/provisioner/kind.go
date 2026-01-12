@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"log"
+	"maps"
+	"math/rand/v2"
 	"os"
 	"slices"
 	"time"
@@ -132,10 +134,52 @@ func (k *KindProvider) waitForNodes() error {
 			log.Printf("... %d/%d nodes ready", readyCount, expectedNodeCount)
 			if readyCount >= expectedNodeCount {
 				log.Println("All nodes are ready. Cluster is healthy.")
-				return nil
+				return k.simulateNvidiaLabels(client)
 			}
 		}
 	}
+}
+
+func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error {
+	ctx := context.TODO()
+	randomCount := rand.IntN(8) + 1
+	processors := []string{
+		"NVIDIA-H100-80GB-HBM3",
+		"NVIDIA-A100-SXM4-80GB",
+		"NVIDIA-A100-SXM4-80GB",
+		"NVIDIA-A800-80GB-SXM4",
+		"NVIDIA-L4",
+		"NVIDIA-L40S",
+		"Tesla-T4",
+		"NVIDIA-A10",
+	}
+	processorIdx := rand.IntN(len(processors))
+	nvidiaLabels := map[string]string{
+		"nvidia.com/gpu.family":               "ampere",
+		"nvidia.com/gpu.machine":              "kind-worker-mock",
+		"nvidia.com/gpu.count":                fmt.Sprint(randomCount),
+		"nvidia.com/gpu.product":              processors[processorIdx],
+		"nvidia.com/cuda.driver.major":        "525",
+		"nvidia.com/cuda.driver.minor":        "60",
+		"nvidia.com/gpu.deploy.device-plugin": "true",
+		"nvidia.com/gpu.deploy.dcgm-exporter": "true",
+	}
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+		LabelSelector: "hpc-sentinel/node-type=gpu-worker",
+	})
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes.Items {
+		newLabels := node.Labels
+		maps.Copy(newLabels, nvidiaLabels)
+		node.SetLabels(newLabels)
+		_, err := client.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
+		if err != nil {
+			log.Printf("failed to label node %s: %v", node.Name, err)
+		}
+	}
+	return nil
 }
 
 func (k *KindProvider) InstallAddons() error {
@@ -156,6 +200,7 @@ func (k *KindProvider) InstallAddons() error {
 	if err != nil {
 		return err
 	}
+	log.Println("all addons deployed successfully")
 	return nil
 }
 
