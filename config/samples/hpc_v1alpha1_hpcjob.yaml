@@ -1,0 +1,9 @@
+apiVersion: hpc.nvidia.com/v1alpha1
+kind: HPCJob
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-hpc-sentinel
+    app.kubernetes.io/managed-by: kustomize
+  name: hpcjob-sample
+spec:
+  # TODO(user): Add fields here

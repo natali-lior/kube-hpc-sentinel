@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- hpc_v1alpha1_hpcjob.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

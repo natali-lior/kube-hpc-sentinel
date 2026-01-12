@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: kube-hpc-sentinel
 repo: github.com/natali-lior/kube-hpc-sentinel
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: nvidia.com
+  group: hpc
+  kind: HPCJob
+  path: github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1
+  version: v1alpha1
 version: "3"
