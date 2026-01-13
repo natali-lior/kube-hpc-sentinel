@@ -1,0 +1,23 @@
+# Build the fake-scenario-manager binary
+FROM golang:1.24 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+COPY cmd/fake-scenario-manager/ cmd/fake-scenario-manager/
+COPY internal/provisioner/fake-scenario/ internal/provisioner/fake-scenario/
+COPY pkg/ pkg/
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-arm64} \
+    go build -a -o scenario-manager cmd/fake-scenario-manager/main.go
+
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY --from=builder /workspace/scenario-manager .
+USER 65532:65532
+
+ENTRYPOINT ["/scenario-manager"]

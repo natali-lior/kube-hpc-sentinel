@@ -25,13 +25,17 @@ func ExportMockDCGMMetrics() error {
 	}
 
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		var sb strings.Builder
 		entries, err := os.ReadDir(metricsDir)
-		if err != nil {
-			http.Error(w, "could not read metrics directory", http.StatusInternalServerError)
+		if err != nil || len(entries) == 0 {
+			log.Printf("Metrics directory %s empty or unreadable. Serving fallback status.", metricsDir)
+			sb.WriteString("# HELP dcgm_exporter_up Status of the mock exporter itself\n")
+			sb.WriteString("# TYPE dcgm_exporter_up gauge\n")
+			sb.WriteString("dcgm_exporter_up 1\n")
+			fmt.Fprint(w, sb.String())
 			return
 		}
-
-		var sb strings.Builder
+		foundMetrics := false
 		for _, entry := range entries {
 			if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 				continue
@@ -46,6 +50,10 @@ func ExportMockDCGMMetrics() error {
 
 			sb.Write(data)
 			sb.WriteString("\n")
+			foundMetrics = true
+		}
+		if !foundMetrics {
+			sb.WriteString("dcgm_exporter_up 1\n")
 		}
 
 		fmt.Fprint(w, sb.String())

@@ -2,9 +2,93 @@
 
 ## Project Overview
 
-**Purpose**: A Kubernetes operator that manages GPU-based high-performance computing workflows with all-or-nothing deployment semantics.
+**Purpose**: A Kubernetes operator that manages GPU-based high-performance computing workloads with all-or-nothing scheduling semantics.
 
-**Current State**: Fresh kubebuilder initialization (v4.10.1) - skeleton only, no custom resources or controllers yet.
+**Current State**: ~45% complete
+- ✅ CRD defined (HPCJob)
+- ✅ Test infrastructure complete (provisioner, mock GPU metrics, scenario manager)
+- ❌ Controller reconciliation logic **NOT IMPLEMENTED** (empty stub)
+- ⚠️ Missing RBAC permissions for nodes/pods
+
+**Version**: v0.1.0-alpha
+**Kubebuilder**: v4.10.1
+**Last Updated**: 2026-01-13
+
+---
+
+## 🚨 Start Here First
+
+**If you're new or resuming development, read these documents in order**:
+
+1. **[TOP_10_ISSUES.md](./TOP_10_ISSUES.md)** ⚠️ **READ THIS FIRST**
+   - Critical issues blocking functionality
+   - Empty controller reconciliation loop
+   - Missing RBAC permissions
+   - Estimated 7-11 days to fix
+
+2. **[build/README.md](./build/README.md)** - Docker images and build workflow
+   - How to build all container images
+   - Scripts for loading to Kind
+   - Quick rebuild workflow
+
+3. **[Tiltfile](./Tiltfile)** - Automated development workflow
+   - Auto-rebuild on file changes
+   - Live reload in Kind cluster
+   - One-command development environment
+
+4. **This guide** - Comprehensive development documentation
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Docker Desktop running
+- kubectl installed
+- kind (`go install sigs.k8s.io/kind@latest`)
+- (Optional) Tilt (`curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash`)
+
+### Fast Path (Using Tilt)
+
+```bash
+# 1. Create Kind cluster with GPU nodes
+cd cmd/provisioner
+go run main.go  # Creates hpc-sentinel-dev cluster
+
+# 2. Start Tilt (auto-rebuild on changes)
+cd ../..
+tilt up
+
+# 3. Press SPACE to open Tilt UI
+# 4. Edit code - Tilt automatically rebuilds and reloads!
+
+# 5. Create test HPCJob
+kubectl apply -f config/samples/hpc_v1alpha1_hpcjob.yaml
+
+# 6. Watch it (won't work until controller is implemented!)
+kubectl get hpcjobs -w
+```
+
+### Manual Path
+
+```bash
+# 1. Create Kind cluster
+cd cmd/provisioner && go run main.go && cd ../..
+
+# 2. Build and load images
+./build/scripts/build-all.sh dev
+./build/scripts/load-to-kind.sh hpc-sentinel-dev dev
+
+# 3. Install CRDs
+make install
+
+# 4. Deploy operator
+make deploy IMG=localhost:5001/kube-hpc-sentinel-manager:dev
+
+# 5. Create HPCJob
+kubectl apply -f config/samples/hpc_v1alpha1_hpcjob.yaml
+```
 
 ---
 
@@ -12,9 +96,12 @@
 
 1. [Understanding What You Have](#understanding-what-you-have)
 2. [Project Structure Deep Dive](#project-structure-deep-dive)
-3. [Development Roadmap](#development-roadmap)
-4. [File-by-File Guide](#file-by-file-guide)
-5. [Next Steps](#next-steps)
+3. [Build and Deployment](#build-and-deployment)
+4. [Development Workflows](#development-workflows)
+5. [Development Roadmap](#development-roadmap)
+6. [File-by-File Guide](#file-by-file-guide)
+7. [Testing Strategy](#testing-strategy)
+8. [Next Steps](#next-steps)
 
 ---
 
@@ -83,6 +170,148 @@ kube-hpc-sentinel/
 └── README.md                            # Project documentation
                                          # UPDATE: Document your CRDs and usage
 ```
+
+---
+
+## Build and Deployment
+
+### Directory Structure
+
+All Docker build files are located in the `build/` directory:
+
+```
+build/
+├── manager/              # Controller manager
+├── provisioner/          # Cluster provisioner
+├── dcgm-mock-exporter/   # Mock GPU metrics exporter
+├── scenario-manager/     # Scenario simulator
+└── scripts/              # Build automation
+    ├── build-all.sh      # Build all images
+    ├── load-to-kind.sh   # Load to Kind cluster
+    └── dev-rebuild.sh    # Quick rebuild for dev
+```
+
+**See [build/README.md](./build/README.md) for detailed documentation.**
+
+### Building Images
+
+```bash
+# Build all images with 'dev' tag
+./build/scripts/build-all.sh dev
+
+# Build specific component
+docker build -f build/manager/Dockerfile -t localhost:5001/kube-hpc-sentinel-manager:dev .
+```
+
+### Loading to Kind
+
+```bash
+# Load all images to cluster
+./build/scripts/load-to-kind.sh hpc-sentinel-dev dev
+
+# Quick rebuild and reload (single component)
+./build/scripts/dev-rebuild.sh manager
+```
+
+### Image Registry
+
+**Local Development**: `localhost:5001` (no registry needed for Kind)
+**Production**: `ghcr.io/natali-lior/kube-hpc-sentinel`
+
+---
+
+## Development Workflows
+
+### Workflow 1: Tilt (Recommended)
+
+**Best for**: Rapid iteration, auto-rebuild on file changes
+
+```bash
+# One-time setup
+cd cmd/provisioner && go run main.go  # Create cluster
+cd ../.. && tilt up                    # Start Tilt
+
+# Tilt watches for changes and automatically:
+# 1. Rebuilds Docker images
+# 2. Loads to Kind
+# 3. Restarts pods
+# 4. Shows logs in UI
+
+# Edit code, save file, watch it reload!
+```
+
+**Tilt UI**: http://localhost:10350 (or press SPACE)
+
+**Features**:
+- Live updates without full rebuild (when possible)
+- Manual trigger for tests/linting
+- Logs from all pods in one place
+- Resource dependency visualization
+
+### Workflow 2: Manual Rebuild
+
+**Best for**: Debugging, understanding the build process
+
+```bash
+# Make changes
+vim internal/controller/hpcjob_controller.go
+
+# Build and reload
+./build/scripts/dev-rebuild.sh manager
+
+# Watch logs
+kubectl logs -n kube-hpc-sentinel-system deployment/kube-hpc-sentinel-controller-manager -f
+
+# Test
+kubectl apply -f config/samples/hpc_v1alpha1_hpcjob.yaml
+kubectl get hpcjobs -w
+```
+
+### Workflow 3: Local Development (No Container)
+
+**Best for**: Testing controller logic without K8s overhead
+
+```bash
+# Install CRDs to cluster
+make install
+
+# Run controller locally (connects to cluster)
+make run
+
+# In another terminal: create HPCJob
+kubectl apply -f config/samples/hpc_v1alpha1_hpcjob.yaml
+
+# Logs appear in the 'make run' terminal
+```
+
+**Note**: This runs the controller on your laptop, not in the cluster.
+
+### Workflow 4: Full Deploy
+
+**Best for**: Testing production-like deployment
+
+```bash
+# Build and push images
+make docker-build docker-push IMG=ghcr.io/natali-lior/kube-hpc-sentinel-manager:v0.1.0
+
+# Deploy to cluster
+make deploy IMG=ghcr.io/natali-lior/kube-hpc-sentinel-manager:v0.1.0
+
+# Create test resources
+kubectl apply -f config/samples/
+
+# Check status
+kubectl get deployments -n kube-hpc-sentinel-system
+```
+
+### Choosing a Workflow
+
+| Workflow | Rebuild Time | Ease of Use | Best For |
+|----------|--------------|-------------|----------|
+| **Tilt** | 5-10s | ⭐⭐⭐⭐⭐ | Day-to-day development |
+| **Manual Rebuild** | 20-30s | ⭐⭐⭐ | Debugging, learning |
+| **Local (make run)** | 2-5s | ⭐⭐⭐⭐ | Controller logic iteration |
+| **Full Deploy** | 1-2min | ⭐⭐ | Pre-release testing |
 
 ---
 
