@@ -33,8 +33,12 @@ nodes:
     labels:
       hpc-sentinel/node-type: "app"
 
-  # 6-9. GPU Worker Nodes (Labeled)
+  # 6-10. GPU Worker Nodes (Labeled)
   # Target for the Fake GPU Operator & Sentinel monitoring
+  - role: worker
+    labels:
+      nvidia.com/gpu.present: "true"
+      hpc-sentinel/node-type: "gpu-worker"
   - role: worker
     labels:
       nvidia.com/gpu.present: "true"
