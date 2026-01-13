@@ -20,11 +20,13 @@ func main() {
 	default:
 		p = provisioner.NewKindProvider("hpc-sentinel-local")
 	}
-
+	if err := p.PreFlightChecks(); err != nil {
+		log.Fatalf("pre flight checks failed: %v", err)
+	}
 	if err := p.Provision(); err != nil {
 		log.Fatalf("setup failed: %v", err)
 	}
 	if err := p.InstallAddons(); err != nil {
-		log.Fatalf("failed to install addons: %v", err)
+		log.Fatalf("post setup addons installation failed: %v", err)
 	}
 }

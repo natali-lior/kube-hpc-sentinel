@@ -23,7 +23,7 @@ spec:
       containers:
       - name: exporter
         image: dcgm-mock-exporter:latest
-        command: ["./mock-dcgm-exporter"]
+        imagePullPolicy: IfNotPresent
         env:
         - name: METRICS_DIR_PATH
           value: "/etc/metrics"

@@ -44,6 +44,10 @@ func NewKindProvider(name string) *KindProvider {
 	}
 }
 
+func (k *KindProvider) PreFlightChecks() error {
+	return nil
+}
+
 func (k *KindProvider) Provision() error {
 	if err := k.createCluster(); err != nil {
 		return fmt.Errorf("failed to create cluster: %w", err)

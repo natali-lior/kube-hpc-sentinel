@@ -25,7 +25,7 @@ spec:
       containers:
       - name: manager
         image: scenario-manager:latest
-        command: ["./scenario-manager"]
+        imagePullPolicy: IfNotPresent
         env:
         - name: MAP_NAME
           value: "dcgm-mock-data"
