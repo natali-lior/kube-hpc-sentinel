@@ -39,19 +39,34 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
   - role: worker
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
   - role: worker
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
   - role: worker
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
   - role: worker
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins

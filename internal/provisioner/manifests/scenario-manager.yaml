@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpc-scenario-manager
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scenario-manager
+  template:
+    metadata:
+      labels:
+        app: scenario-manager
+    spec:
+      nodeSelector:
+        hpc-sentinel/node-type: "observability"
+      tolerations:
+        - key: "node-role.kubernetes.io/observability"
+          operator: "Exists"
+          effect: "NoSchedule"
+      
+      serviceAccountName: scenario-manager-sa
+      
+      containers:
+      - name: manager
+        image: scenario-manager:latest
+        command: ["./scenario-manager"]
+        env:
+        - name: MAP_NAME
+          value: "dcgm-mock-data"
+        - name: MAP_NAMESPACE
+          value: "monitoring"
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scenario-manager-sa
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scenario-manager-role
+  namespace: monitoring
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["dcgm-mock-data"]
+  verbs: ["get", "update", "patch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scenario-manager-rb
+  namespace: monitoring
+subjects:
+- kind: ServiceAccount
+  name: scenario-manager-sa
+roleRef:
+  kind: Role
+  name: scenario-manager-role
+  apiGroup: rbac.authorization.k8s.io

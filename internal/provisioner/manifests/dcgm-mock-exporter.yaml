@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dcgm-mock-exporter
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dcgm-mock-exporter
+  template:
+    metadata:
+      labels:
+        app: dcgm-mock-exporter
+    spec:
+      nodeSelector:
+        hpc-sentinel/node-type: "observability"
+      tolerations:
+        - key: "node-role.kubernetes.io/observability"
+          operator: "Exists"
+          effect: "NoSchedule"
+      
+      containers:
+      - name: exporter
+        image: dcgm-mock-exporter:latest
+        command: ["./mock-dcgm-exporter"]
+        env:
+        - name: METRICS_DIR_PATH
+          value: "/etc/metrics"
+        - name: PORT
+          value: "9400"
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+        ports:
+        - containerPort: 9400
+        volumeMounts:
+        - name: metrics-vol
+          mountPath: /etc/metrics
+      volumes:
+      - name: metrics-vol
+        configMap:
+          name: dcgm-mock-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-mock-exporter
+  namespace: monitoring
+  labels:
+    app: dcgm-mock-exporter
+spec:
+  ports:
+  - name: metrics
+    port: 9400
+    targetPort: 9400
+  selector:
+    app: dcgm-mock-exporter
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dcgm-mock-exporter
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: dcgm-mock-exporter
+  endpoints:
+  - port: metrics
+    interval: 10s

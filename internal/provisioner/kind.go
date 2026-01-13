@@ -9,8 +9,10 @@ import (
 	"math/rand/v2"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	"go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -82,23 +84,19 @@ func (k *KindProvider) createCluster() error {
 
 func (k *KindProvider) GetKubernetesClient() (*kubernetes.Clientset, error) {
 	kubeconfig, err := k.Provider.KubeConfig(k.ClusterName, false)
-	if err != nil {
-		log.Println("Context: Kind kubeconfig not found, falling back to local config")
-		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
-		configOverrides := &clientcmd.ConfigOverrides{}
-		kubeconfigObj := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-		config, err := kubeconfigObj.ClientConfig()
+	if err == nil {
+		kClient, err := kube.NewClientFromRawConfig([]byte(kubeconfig))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create client from kind config: %w", err)
 		}
-		return kubernetes.NewForConfig(config)
+		return kClient.Kube, nil
 	}
-	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
+	log.Println("context: kind-specific kubeconfig not found, falling back to shared loader")
+	kClient, err := kube.NewKubeClient()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("shared loader fallback failed: %w", err)
 	}
-
-	return kubernetes.NewForConfig(config)
+	return kClient.Kube, nil
 }
 
 func (k *KindProvider) waitForNodes() error {
@@ -155,9 +153,11 @@ func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error 
 	}
 	processorIdx := rand.IntN(len(processors))
 	nvidiaLabels := map[string]string{
+		"gpu-count":                           fmt.Sprint(randomCount),
+		"nvidia.com/gpu.count":                fmt.Sprint(randomCount),
 		"nvidia.com/gpu.family":               "ampere",
 		"nvidia.com/gpu.machine":              "kind-worker-mock",
-		"nvidia.com/gpu.count":                fmt.Sprint(randomCount),
+		"nvidia.com/gpu.present":              "true",
 		"nvidia.com/gpu.product":              processors[processorIdx],
 		"nvidia.com/cuda.driver.major":        "525",
 		"nvidia.com/cuda.driver.minor":        "60",
@@ -206,11 +206,16 @@ func (k *KindProvider) InstallAddons() error {
 
 func (k *KindProvider) installFakeGpuOperator(restConfig *rest.Config) error {
 	return k.installChart(restConfig,
-		"fake-gpu",
-		"https://kindest.github.io/kube-fake-gpu",
-		"fake-gpu", "kube-system",
+		"fake-gpu-operator",
+		"oci://ghcr.io/run-ai/fake-gpu-operator",
+		"fake-gpu-operator",
+		"gpu-operator",
 		map[string]any{
 			"nodeSelector": map[string]string{"nvidia.com/gpu.present": "true"},
+			"privileged":   true,
+			"metrics": map[string]any{
+				"enabled": true,
+			},
 		},
 	)
 }
@@ -252,13 +257,21 @@ func (k *KindProvider) installChart(
 	client.Namespace = namespace
 	client.CreateNamespace = true
 	client.Wait = true
-	chartPath, err := client.LocateChart(chartName, settings)
+	client.Timeout = 5 * time.Minute
+
+	var chartPath string
+	if strings.HasPrefix(repoUrl, "oci://") {
+		chartPath, err = client.LocateChart(repoUrl, settings)
+	} else {
+		client.ChartPathOptions.RepoURL = repoUrl
+		chartPath, err = client.LocateChart(chartName, settings)
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to locate chart: %w", err)
 	}
 	chartRequested, err := loader.Load(chartPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to load chart: %w", err)
 	}
 	_, err = client.Run(chartRequested, vals)
 	return nil
