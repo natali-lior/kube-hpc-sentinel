@@ -19,7 +19,6 @@ spec:
         - key: "node-role.kubernetes.io/observability"
           operator: "Exists"
           effect: "NoSchedule"
-      
       containers:
       - name: exporter
         image: dcgm-mock-exporter:latest

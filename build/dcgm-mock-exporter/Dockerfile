@@ -8,8 +8,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download
 
-COPY cmd/dcgm-mock-exporter/ cmd/dcgm-mock-exporter/
-COPY internal/provisioner/fake-scenario/ internal/provisioner/fake-scenario/
+COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-arm64} \
     go build -a -o dcgm-mock-exporter cmd/dcgm-mock-exporter/main.go

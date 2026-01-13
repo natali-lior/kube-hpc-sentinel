@@ -53,11 +53,7 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
-  resourceNames: ["dcgm-mock-data"]
-  verbs: ["get", "update", "patch"]
-- apiGroups: [""]
-  resources: ["nodes"]
-  verbs: ["list", "get"]
+  verbs: ["get", "update", "patch", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -70,4 +66,29 @@ subjects:
 roleRef:
   kind: Role
   name: scenario-manager-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scenario-manager-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["list", "get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "update", "patch", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scenario-manager-cluster-rb
+subjects:
+- kind: ServiceAccount
+  name: scenario-manager-sa
+  namespace: monitoring 
+roleRef:
+  kind: ClusterRole
+  name: scenario-manager-cluster-role
   apiGroup: rbac.authorization.k8s.io

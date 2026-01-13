@@ -8,12 +8,10 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download
 
-COPY cmd/scenario-manager/ cmd/scenario-manager/
-COPY internal/provisioner/fake-scenario/ internal/provisioner/fake-scenario/
-COPY pkg/ pkg/
+COPY . .
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-arm64} \
-    go build -a -o scenario-manager cmd/fake-scenario-manager/main.go
+    go build -a -o scenario-manager cmd/scenario-manager/main.go
 
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /

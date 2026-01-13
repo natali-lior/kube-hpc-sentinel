@@ -9,20 +9,28 @@ nodes:
   - role: worker
     labels:
       hpc-sentinel/node-type: "infra"
-    taints:
-      - key: "node-role.kubernetes.io/infra"
-        value: "true"
-        effect: "NoSchedule"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "node-role.kubernetes.io/infra"
+              value: "true"
+              effect: "NoSchedule"
 
   # 3. Observability Node (Tainted)
   # For: Prometheus, Grafana, Loki
   - role: worker
     labels:
       hpc-sentinel/node-type: "observability"
-    taints:
-      - key: "node-role.kubernetes.io/observability"
-        value: "true"
-        effect: "NoSchedule"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "node-role.kubernetes.io/observability"
+              value: "true"
+              effect: "NoSchedule"
 
   # 4-5. Standard App Nodes (Untainted)
   # For: Regular microservices or your operator manager pod
@@ -46,6 +54,14 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "true"
+              effect: "NoSchedule"
     extraMounts:
       - hostPath: /var/lib/kubelet/device-plugins
         containerPath: /var/lib/kubelet/device-plugins
@@ -53,6 +69,14 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "true"
+              effect: "NoSchedule"
     extraMounts:
       - hostPath: /var/lib/kubelet/device-plugins
         containerPath: /var/lib/kubelet/device-plugins
@@ -60,6 +84,14 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "true"
+              effect: "NoSchedule"
     extraMounts:
       - hostPath: /var/lib/kubelet/device-plugins
         containerPath: /var/lib/kubelet/device-plugins
@@ -67,6 +99,14 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "true"
+              effect: "NoSchedule"
     extraMounts:
       - hostPath: /var/lib/kubelet/device-plugins
         containerPath: /var/lib/kubelet/device-plugins

@@ -9,25 +9,29 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	"go.yaml.in/yaml/v3"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/kind/pkg/cluster"
 
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
-	"k8s.io/client-go/rest"
 )
 
 //go:embed manifests/kind-config.yaml
 var kindConfig []byte
+
+const (
+	HELM_DRIVER = "HELM_DRIVER"
+	KUBECONFIG  = "KUBECONFIG"
+)
 
 type KindConfigMapping struct {
 	Nodes []any `yaml:"nodes"`
@@ -102,7 +106,7 @@ func (k *KindProvider) createCluster() error {
 	)
 }
 
-func (k *KindProvider) GetKubernetesClient() (*kubernetes.Clientset, error) {
+func (k *KindProvider) getKubernetesClient() (*kubernetes.Clientset, error) {
 	kubeconfig, err := k.Provider.KubeConfig(k.ClusterName, false)
 	if err == nil {
 		kClient, err := kube.NewClientFromRawConfig([]byte(kubeconfig))
@@ -111,7 +115,6 @@ func (k *KindProvider) GetKubernetesClient() (*kubernetes.Clientset, error) {
 		}
 		return kClient.Kube, nil
 	}
-	log.Println("context: kind-specific kubeconfig not found, falling back to shared loader")
 	kClient, err := kube.NewKubeClient()
 	if err != nil {
 		return nil, fmt.Errorf("shared loader fallback failed: %w", err)
@@ -120,7 +123,7 @@ func (k *KindProvider) GetKubernetesClient() (*kubernetes.Clientset, error) {
 }
 
 func (k *KindProvider) waitForNodes() error {
-	client, err := k.GetKubernetesClient()
+	client, err := k.getKubernetesClient()
 	if err != nil {
 		return fmt.Errorf("failed to get k8s client: %w", err)
 	}
@@ -164,7 +167,6 @@ func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error 
 	processors := []string{
 		"NVIDIA-H100-80GB-HBM3",
 		"NVIDIA-A100-SXM4-80GB",
-		"NVIDIA-A100-SXM4-80GB",
 		"NVIDIA-A800-80GB-SXM4",
 		"NVIDIA-L4",
 		"NVIDIA-L40S",
@@ -192,6 +194,9 @@ func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error 
 	}
 	for _, node := range nodes.Items {
 		newLabels := node.Labels
+		if newLabels == nil {
+			newLabels = make(map[string]string)
+		}
 		maps.Copy(newLabels, nvidiaLabels)
 		node.SetLabels(newLabels)
 		_, err := client.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
@@ -207,30 +212,77 @@ func (k *KindProvider) InstallAddons() error {
 	if err != nil {
 		return err
 	}
-	restConfig, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfig))
-	if err != nil {
+
+	kubeconfigPath := filepath.Join(os.TempDir(), k.ClusterName+"-kubeconfig.yaml")
+	if err := os.WriteFile(kubeconfigPath, []byte(kubeconfig), 0644); err != nil {
 		return err
 	}
+	os.Setenv(KUBECONFIG, kubeconfigPath)
+
 	log.Println("installing cluster addons...")
-	err = k.installFakeGpuOperator(restConfig)
-	if err != nil {
+	if err := k.installFakeGpuOperator(); err != nil {
 		return err
 	}
 	log.Println("fake gpu operator deployed successfully")
-	err = k.installKubePrometheusStack(restConfig)
-	if err != nil {
+
+	if err := k.installKubePrometheusStack(); err != nil {
 		return err
 	}
 	log.Println("prometheus stack deployed successfully")
+
 	return k.launchMockEnvironment()
 }
 
-func (k *KindProvider) installFakeGpuOperator(restConfig *rest.Config) error {
-	return k.installChart(restConfig,
-		"fake-gpu-operator",
-		"oci://ghcr.io/run-ai/fake-gpu-operator",
+func (k *KindProvider) createFakeTopologies() error {
+	ctx := context.TODO()
+	client, err := k.getKubernetesClient()
+	if err != nil {
+		return err
+	}
+	_, _ = client.CoreV1().Namespaces().Create(ctx, &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "gpu-operator"},
+	}, metav1.CreateOptions{})
+
+	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+		LabelSelector: "hpc-sentinel/node-type=gpu-worker",
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, node := range nodes.Items {
+		cmName := fmt.Sprintf("topology-%s", node.Name)
+		log.Printf("Creating mock topology for GPU node: %s", node.Name)
+
+		cm := &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      cmName,
+				Namespace: "gpu-operator",
+			},
+			Data: map[string]string{
+				"topology.yaml": "nodes: []",
+			},
+		}
+
+		_, err := client.CoreV1().ConfigMaps("gpu-operator").Create(ctx, cm, metav1.CreateOptions{})
+		if err != nil && !strings.Contains(err.Error(), "already exists") {
+			log.Printf("Warning: failed to create configmap %s: %v", cmName, err)
+		}
+	}
+	return nil
+}
+
+func (k *KindProvider) installFakeGpuOperator() error {
+	err := k.createFakeTopologies()
+	if err != nil {
+		return fmt.Errorf("could not perform creation of fake topology as pre step for fake-gpu-operator: %w", err)
+	}
+	return k.installChart(
+		"run-ai",
+		"oci://ghcr.io/run-ai/fake-gpu-operator/fake-gpu-operator",
 		"fake-gpu-operator",
 		"gpu-operator",
+		"0.0.68",
 		map[string]any{
 			"nodeSelector": map[string]string{"nvidia.com/gpu.present": "true"},
 			"privileged":   true,
@@ -241,7 +293,7 @@ func (k *KindProvider) installFakeGpuOperator(restConfig *rest.Config) error {
 	)
 }
 
-func (k *KindProvider) installKubePrometheusStack(restConfig *rest.Config) error {
+func (k *KindProvider) installKubePrometheusStack() error {
 	promValues := map[string]any{
 		"prometheus": map[string]any{
 			"nodeSelector": map[string]string{"hpc-sentinel/node-type": "observability"},
@@ -256,17 +308,17 @@ func (k *KindProvider) installKubePrometheusStack(restConfig *rest.Config) error
 			},
 		},
 	}
-	return k.installChart(restConfig,
+	return k.installChart(
 		"prometheus-community",
 		"https://prometheus-community.github.io/helm-charts",
-		"kube-prometheus-stack", "monitoring", promValues,
+		"kube-prometheus-stack", "monitoring", "", promValues,
 	)
 }
 
 func (k *KindProvider) isChartInstalled(namespace, releaseName string) bool {
 	settings := cli.New()
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), func(format string, v ...any) {}); err != nil {
+	if err := actionConfig.Init(settings.RESTClientGetter(), namespace, "secret", func(format string, v ...any) {}); err != nil {
 		return false
 	}
 	histClient := action.NewHistory(actionConfig)
@@ -276,43 +328,53 @@ func (k *KindProvider) isChartInstalled(namespace, releaseName string) bool {
 }
 
 func (k *KindProvider) installChart(
-	config *rest.Config,
-	repoName, repoUrl, chartName, namespace string,
+	repoName, repoUrl, chartName, namespace, version string,
 	vals map[string]any) error {
 
 	if k.isChartInstalled(namespace, chartName) {
-		log.Printf("Release '%s' already exists in namespace '%s'. Skipping helm install", chartName, namespace)
+		log.Printf("Release '%s' already exists. Skipping.", chartName)
 		return nil
 	}
 
-	settings := cli.New()
-	actionConfig := new(action.Configuration)
-	err := actionConfig.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
-	if err != nil {
-		return err
-	}
-	client := action.NewInstall(actionConfig)
-	client.ReleaseName = chartName
-	client.Namespace = namespace
-	client.CreateNamespace = true
-	client.Wait = true
-	client.Timeout = 5 * time.Minute
+	valsFile := filepath.Join(os.TempDir(), chartName+"-values.yaml")
+	valsYaml, _ := yaml.Marshal(vals)
+	_ = os.WriteFile(valsFile, valsYaml, 0644)
+	defer os.Remove(valsFile)
 
-	var chartPath string
-	if strings.HasPrefix(repoUrl, "oci://") {
-		chartPath, err = client.LocateChart(repoUrl, settings)
-	} else {
-		client.ChartPathOptions.RepoURL = repoUrl
-		chartPath, err = client.LocateChart(chartName, settings)
+	chartRef := repoUrl
+	if !strings.HasPrefix(repoUrl, "oci://") {
+		chartRef = fmt.Sprintf("%s/%s", repoName, chartName)
 	}
-	if err != nil {
-		return fmt.Errorf("failed to locate chart: %w", err)
+
+	args := []string{
+		"upgrade", "--install", chartName, chartRef,
+		"--namespace", namespace,
+		"--create-namespace",
+		"--values", valsFile,
+		"--wait",
+		"--timeout", "15m",
 	}
-	chartRequested, err := loader.Load(chartPath)
-	if err != nil {
-		return fmt.Errorf("failed to load chart: %w", err)
+
+	if version != "" && version != "latest" {
+		args = append(args, "--version", version)
 	}
-	_, err = client.Run(chartRequested, vals)
+
+	if !strings.HasPrefix(repoUrl, "oci://") {
+		addRepo := exec.Command("helm", "repo", "add", repoName, repoUrl)
+		_ = addRepo.Run()
+		_ = exec.Command("helm", "repo", "update").Run()
+	}
+
+	log.Printf("Installing %s via Helm CLI...", chartName)
+	cmd := exec.Command("helm", args...)
+
+	kubeconfigPath := filepath.Join(os.TempDir(), k.ClusterName+"-kubeconfig.yaml")
+	cmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfigPath)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("helm install failed: %s: %w", string(out), err)
+	}
+
 	return nil
 }
 

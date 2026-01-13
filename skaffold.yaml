@@ -1,20 +1,39 @@
 apiVersion: skaffold/v4beta3
 kind: Config
+metadata:
+  name: scenario-manager-config
 build:
   local:
-    push: false # Load directly into Kind
+    push: false
   artifacts:
-    - image: dcgm-mock-exporter
-      context: .
-      docker:
-        dockerfile: build/dcgm-mock-exporter/Dockerfile
     - image: scenario-manager
       context: .
       docker:
         dockerfile: build/scenario-manager/Dockerfile
 manifests:
   rawYaml:
-    - internal/provisioner/manifests/dcgm-mock-exporter.yaml
     - internal/provisioner/manifests/scenario-manager.yaml
+deploy:
+  kubectl: {}
+
+---
+
+apiVersion: skaffold/v4beta3
+kind: Config
+metadata:
+  name: exporter-config
+requires:
+  - configs: [scenario-manager-config]
+build:
+  local:
+    push: false
+  artifacts:
+    - image: dcgm-mock-exporter
+      context: .
+      docker:
+        dockerfile: build/dcgm-mock-exporter/Dockerfile
+manifests:
+  rawYaml:
+    - internal/provisioner/manifests/dcgm-mock-exporter.yaml
 deploy:
   kubectl: {}
