@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math/rand/v2"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -44,7 +45,22 @@ func NewKindProvider(name string) *KindProvider {
 	}
 }
 
-func (k *KindProvider) PreFlightChecks() error {
+func (k *KindProvider) CheckSystemRequirements() error {
+	checks := []struct {
+		name string
+		cmd  *exec.Cmd
+	}{
+		{"Docker", exec.Command("docker", "info")},
+		{"Kind", exec.Command("kind", "version")},
+		{"Skaffold", exec.Command("skaffold", "version")},
+	}
+
+	for _, check := range checks {
+		if err := check.cmd.Run(); err != nil {
+			return fmt.Errorf("%s check failed: ensure it is installed and running", check.name)
+		}
+		log.Printf("✓ %s is ready", check.name)
+	}
 	return nil
 }
 
@@ -200,12 +216,13 @@ func (k *KindProvider) InstallAddons() error {
 	if err != nil {
 		return err
 	}
+	log.Println("fake gpu operator deployed successfully")
 	err = k.installKubePrometheusStack(restConfig)
 	if err != nil {
 		return err
 	}
-	log.Println("all addons deployed successfully")
-	return nil
+	log.Println("prometheus stack deployed successfully")
+	return k.launchMockEnvironment()
 }
 
 func (k *KindProvider) installFakeGpuOperator(restConfig *rest.Config) error {
@@ -246,10 +263,28 @@ func (k *KindProvider) installKubePrometheusStack(restConfig *rest.Config) error
 	)
 }
 
+func (k *KindProvider) isChartInstalled(namespace, releaseName string) bool {
+	settings := cli.New()
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), func(format string, v ...any) {}); err != nil {
+		return false
+	}
+	histClient := action.NewHistory(actionConfig)
+	histClient.Max = 1
+	_, err := histClient.Run(releaseName)
+	return err == nil
+}
+
 func (k *KindProvider) installChart(
 	config *rest.Config,
 	repoName, repoUrl, chartName, namespace string,
 	vals map[string]any) error {
+
+	if k.isChartInstalled(namespace, chartName) {
+		log.Printf("Release '%s' already exists in namespace '%s'. Skipping helm install", chartName, namespace)
+		return nil
+	}
+
 	settings := cli.New()
 	actionConfig := new(action.Configuration)
 	err := actionConfig.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
@@ -279,4 +314,12 @@ func (k *KindProvider) installChart(
 	}
 	_, err = client.Run(chartRequested, vals)
 	return nil
+}
+
+func (k *KindProvider) launchMockEnvironment() error {
+	log.Println("starting skaffold for mock apps...")
+	cmd := exec.Command("skaffold", "run", "--tail")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Start()
 }

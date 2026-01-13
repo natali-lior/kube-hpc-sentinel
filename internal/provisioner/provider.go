@@ -1,7 +1,7 @@
 package provisioner
 
 type ClusterProvider interface {
-	PreFlightChecks() error
+	CheckSystemRequirements() error
 	Provision() error
 	InstallAddons() error
 }

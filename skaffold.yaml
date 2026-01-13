@@ -1,0 +1,20 @@
+apiVersion: skaffold/v4beta3
+kind: Config
+build:
+  local:
+    push: false # Load directly into Kind
+  artifacts:
+    - image: dcgm-mock-exporter
+      context: .
+      docker:
+        dockerfile: build/dcgm-mock-exporter/Dockerfile
+    - image: scenario-manager
+      context: .
+      docker:
+        dockerfile: build/scenario-manager/Dockerfile
+manifests:
+  rawYaml:
+    - internal/provisioner/manifests/dcgm-mock-exporter.yaml
+    - internal/provisioner/manifests/scenario-manager.yaml
+deploy:
+  kubectl: {}

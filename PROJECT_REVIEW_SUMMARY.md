@@ -324,7 +324,7 @@ kube-hpc-sentinel/
 │   ├── manager/main.go              # Controller manager
 │   ├── provisioner/main.go          # Cluster provisioner (complete)
 │   ├── dcgm-mock-exporter/main.go   # Mock GPU metrics (complete)
-│   └── fake-scenario-manager/main.go # Scenario simulator (complete)
+│   └── scenario-manager/main.go # Scenario simulator (complete)
 │
 ├── config/                          # ✅ Kubernetes manifests
 │   ├── crd/bases/                   # Generated CRDs
@@ -341,7 +341,7 @@ kube-hpc-sentinel/
 │   └── provisioner/                 # ✅ Complete
 │       ├── kind.go                  # Kind cluster creation
 │       ├── manifests/               # Embedded YAML
-│       └── fake-scenario/           # GPU simulation
+│       └── scenario/           # GPU simulation
 │
 ├── pkg/kube/                        # ✅ Shared utilities
 │   └── client.go                    # K8s client wrapper

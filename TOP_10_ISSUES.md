@@ -194,7 +194,7 @@ build-exporter: ## Build the DCGM mock exporter
 
 .PHONY: build-scenario-manager
 build-scenario-manager: ## Build the fake scenario manager
-	go build -o bin/scenario-manager cmd/fake-scenario-manager/main.go
+	go build -o bin/scenario-manager cmd/scenario-manager/main.go
 
 ##@ Docker Images
 

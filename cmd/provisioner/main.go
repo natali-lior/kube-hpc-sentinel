@@ -20,7 +20,7 @@ func main() {
 	default:
 		p = provisioner.NewKindProvider("hpc-sentinel-local")
 	}
-	if err := p.PreFlightChecks(); err != nil {
+	if err := p.CheckSystemRequirements(); err != nil {
 		log.Fatalf("pre flight checks failed: %v", err)
 	}
 	if err := p.Provision(); err != nil {

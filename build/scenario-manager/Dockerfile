@@ -1,4 +1,4 @@
-# Build the fake-scenario-manager binary
+# Build the scenario-manager binary
 FROM golang:1.24 AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -8,7 +8,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 RUN go mod download
 
-COPY cmd/fake-scenario-manager/ cmd/fake-scenario-manager/
+COPY cmd/scenario-manager/ cmd/scenario-manager/
 COPY internal/provisioner/fake-scenario/ internal/provisioner/fake-scenario/
 COPY pkg/ pkg/
 
