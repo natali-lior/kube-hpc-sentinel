@@ -3,6 +3,7 @@ package provisioner
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log"
 	"maps"
@@ -16,8 +17,8 @@ import (
 
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	"go.yaml.in/yaml/v3"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kind/pkg/cluster"
 
@@ -29,9 +30,26 @@ import (
 var kindConfig []byte
 
 const (
-	HELM_DRIVER = "HELM_DRIVER"
-	KUBECONFIG  = "KUBECONFIG"
+	GPU_OPERATOR_NS = "gpu-operator"
+	HELM_DRIVER     = "HELM_DRIVER"
+	KUBECONFIG      = "KUBECONFIG"
 )
+
+type GPUInfo struct {
+	Product string
+	Family  string
+}
+
+var hwCatalog map[string]GPUInfo = map[string]GPUInfo{
+	"h100-pool": {"NVIDIA-H100-80GB-HBM3", "hopper"},
+	"a100-pool": {"NVIDIA-A100-SXM4-80GB", "ampere"},
+	"a800-pool": {"NVIDIA-A800-80GB-SXM4", "ampere"},
+	"l4-pool":   {"NVIDIA-L4", "ada"},
+	"l40s-pool": {"NVIDIA-L40S", "ada"},
+	"t4-pool":   {"Tesla-T4", "turing"},
+	"a10-pool":  {"NVIDIA-A10", "ampere"},
+	"v100-pool": {"NVIDIA-V100-SXM2-16GB", "volta"},
+}
 
 type KindConfigMapping struct {
 	Nodes []any `yaml:"nodes"`
@@ -163,29 +181,7 @@ func (k *KindProvider) waitForNodes() error {
 
 func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error {
 	ctx := context.TODO()
-	randomCount := rand.IntN(8) + 1
-	processors := []string{
-		"NVIDIA-H100-80GB-HBM3",
-		"NVIDIA-A100-SXM4-80GB",
-		"NVIDIA-A800-80GB-SXM4",
-		"NVIDIA-L4",
-		"NVIDIA-L40S",
-		"Tesla-T4",
-		"NVIDIA-A10",
-	}
-	processorIdx := rand.IntN(len(processors))
-	nvidiaLabels := map[string]string{
-		"gpu-count":                           fmt.Sprint(randomCount),
-		"nvidia.com/gpu.count":                fmt.Sprint(randomCount),
-		"nvidia.com/gpu.family":               "ampere",
-		"nvidia.com/gpu.machine":              "kind-worker-mock",
-		"nvidia.com/gpu.present":              "true",
-		"nvidia.com/gpu.product":              processors[processorIdx],
-		"nvidia.com/cuda.driver.major":        "525",
-		"nvidia.com/cuda.driver.minor":        "60",
-		"nvidia.com/gpu.deploy.device-plugin": "true",
-		"nvidia.com/gpu.deploy.dcgm-exporter": "true",
-	}
+
 	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
 		LabelSelector: "hpc-sentinel/node-type=gpu-worker",
 	})
@@ -193,18 +189,53 @@ func (k *KindProvider) simulateNvidiaLabels(client *kubernetes.Clientset) error 
 		return err
 	}
 	for _, node := range nodes.Items {
-		newLabels := node.Labels
-		if newLabels == nil {
-			newLabels = make(map[string]string)
+
+		lb := k.nvidiaLabels()
+
+		patchData := map[string]any{
+			"metadata": map[string]any{
+				"labels": lb,
+			},
 		}
-		maps.Copy(newLabels, nvidiaLabels)
-		node.SetLabels(newLabels)
-		_, err := client.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
+		payloadBytes, err := json.Marshal(patchData)
 		if err != nil {
-			log.Printf("failed to label node %s: %v", node.Name, err)
+			return err
+		}
+		_, err = client.CoreV1().Nodes().Patch(
+			ctx, node.Name, types.MergePatchType, payloadBytes, metav1.PatchOptions{},
+		)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (k *KindProvider) nvidiaLabels() map[string]string {
+	keys := slices.Collect(maps.Keys(hwCatalog))
+	poolName := keys[rand.IntN(len(keys))]
+	selection := hwCatalog[poolName]
+
+	counts := []int{1, 2, 4, 8}
+	randomCount := counts[rand.IntN(len(counts))]
+
+	return map[string]string{
+		"hpc-sentinel/node-type":               "gpu-worker",
+		"nvidia.com/gpu.count":                 fmt.Sprint(randomCount),
+		"nvidia.com/gpu.family":                selection.Family,
+		"nvidia.com/gpu.product":               selection.Product,
+		"nvidia.com/gpu.machine":               "kind-worker-mock",
+		"nvidia.com/gpu.present":               "true",
+		"nvidia.com/cuda.driver.major":         "535",
+		"nvidia.com/cuda.driver.minor":         "104",
+		"nvidia.com/cuda.runtime.major":        "12",
+		"nvidia.com/cuda.runtime.minor":        "2",
+		"nvidia.com/gpu.deploy.device-plugin":  "true",
+		"nvidia.com/gpu.deploy.dcgm-exporter":  "true",
+		"nvidia.com/gpu.deploy.operator-state": "unmanaged",
+		"run.ai/simulated-gpu-node-pool":       poolName,
+		"run.ai/fake.gpu":                      "true",
+	}
 }
 
 func (k *KindProvider) InstallAddons() error {
@@ -233,59 +264,27 @@ func (k *KindProvider) InstallAddons() error {
 	return k.launchMockEnvironment()
 }
 
-func (k *KindProvider) createFakeTopologies() error {
-	ctx := context.TODO()
-	client, err := k.getKubernetesClient()
-	if err != nil {
-		return err
-	}
-	_, _ = client.CoreV1().Namespaces().Create(ctx, &v1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: "gpu-operator"},
-	}, metav1.CreateOptions{})
-
-	nodes, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
-		LabelSelector: "hpc-sentinel/node-type=gpu-worker",
-	})
-	if err != nil {
-		return err
-	}
-
-	for _, node := range nodes.Items {
-		cmName := fmt.Sprintf("topology-%s", node.Name)
-		log.Printf("Creating mock topology for GPU node: %s", node.Name)
-
-		cm := &v1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      cmName,
-				Namespace: "gpu-operator",
-			},
-			Data: map[string]string{
-				"topology.yaml": "nodes: []",
-			},
-		}
-
-		_, err := client.CoreV1().ConfigMaps("gpu-operator").Create(ctx, cm, metav1.CreateOptions{})
-		if err != nil && !strings.Contains(err.Error(), "already exists") {
-			log.Printf("Warning: failed to create configmap %s: %v", cmName, err)
-		}
-	}
-	return nil
-}
-
 func (k *KindProvider) installFakeGpuOperator() error {
-	err := k.createFakeTopologies()
-	if err != nil {
-		return fmt.Errorf("could not perform creation of fake topology as pre step for fake-gpu-operator: %w", err)
+	nodePools := make(map[string]any)
+	for poolName, info := range hwCatalog {
+		nodePools[poolName] = map[string]any{
+			"gpuCount":   8,
+			"gpuProduct": info.Product,
+			"gpuMemory":  81920,
+		}
 	}
 	return k.installChart(
 		"run-ai",
 		"oci://ghcr.io/run-ai/fake-gpu-operator/fake-gpu-operator",
 		"fake-gpu-operator",
-		"gpu-operator",
+		GPU_OPERATOR_NS,
 		"0.0.68",
 		map[string]any{
 			"nodeSelector": map[string]string{"nvidia.com/gpu.present": "true"},
 			"privileged":   true,
+			"topology": map[string]any{
+				"nodePools": nodePools,
+			},
 			"metrics": map[string]any{
 				"enabled": true,
 			},
