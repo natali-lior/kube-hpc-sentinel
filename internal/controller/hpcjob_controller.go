@@ -24,6 +24,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	hpcv1alpha1 "github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -50,12 +51,21 @@ func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		l.Error().Msg("Failed to fetch HPCJob")
 		return ctrl.Result{}, nil
 	}
+	if len(hpcJob.Status.Phase) == 0 {
+		hpcJob.Status.Phase = v1alpha1.Pending
+	}
 	l.Info().Str("image", hpcJob.Spec.Image).Int32("gpus", hpcJob.Spec.GPUCount).Msg("Successfully loaded HPCJob spec")
-
+	switch hpcJob.Status.Phase {
+	case v1alpha1.Pending:
+		return r.handlePending(ctx, &hpcJob)
+	case v1alpha1.Running:
+		return r.handleRunning(ctx, &hpcJob)
+	case v1alpha1.Failed:
+		return r.handleFailed(ctx, &hpcJob)
+	}
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
 func (r *HPCJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hpcv1alpha1.HPCJob{}).
@@ -73,4 +83,16 @@ func (r *HPCJobReconciler) fetchResource(ctx context.Context, req ctrl.Request, 
 		return hpcJob, err
 	}
 	return hpcJob, nil
+}
+
+func (r *HPCJobReconciler) handlePending(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+	return ctrl.Result{}, nil
+}
+
+func (r *HPCJobReconciler) handleRunning(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+	return ctrl.Result{}, nil
+}
+
+func (r *HPCJobReconciler) handleFailed(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+	return ctrl.Result{}, nil
 }
