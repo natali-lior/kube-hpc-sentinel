@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	"go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -133,7 +134,8 @@ func (k *KindProvider) getKubernetesClient() (*kubernetes.Clientset, error) {
 		}
 		return kClient.Kube, nil
 	}
-	kClient, err := kube.NewKubeClient()
+	cfg := config.Load()
+	kClient, err := kube.NewKubeClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("shared loader fallback failed: %w", err)
 	}

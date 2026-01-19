@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -15,6 +16,7 @@ import (
 const ENV_PORT = "PORT"
 
 func ExportMockDCGMMetrics() error {
+	cfg := config.Load()
 	mapName := os.Getenv(ENV_MAP_NAME)
 	if len(mapName) == 0 {
 		return fmt.Errorf("env var %s is empty", ENV_MAP_NAME)
@@ -28,7 +30,7 @@ func ExportMockDCGMMetrics() error {
 		return fmt.Errorf("env var %s is empty", ENV_PORT)
 	}
 
-	kubeClient, err := kube.NewKubeClient()
+	kubeClient, err := kube.NewKubeClient(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes client: %w", err)
 	}

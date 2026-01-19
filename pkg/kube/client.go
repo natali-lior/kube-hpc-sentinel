@@ -5,14 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-)
-
-const (
-	KUBECONFIG = "KUBECONFIG"
 )
 
 type KubeClient struct {
@@ -20,8 +17,8 @@ type KubeClient struct {
 	Config *rest.Config
 }
 
-func NewKubeClient() (*KubeClient, error) {
-	config, err := GetConfig()
+func NewKubeClient(cfg *config.Config) (*KubeClient, error) {
+	config, err := GetConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -35,20 +32,20 @@ func NewKubeClient() (*KubeClient, error) {
 	}, nil
 }
 
-func GetConfig() (*rest.Config, error) {
+func GetConfig(cfg *config.Config) (*rest.Config, error) {
 	if config, err := rest.InClusterConfig(); err == nil {
 		return config, nil
 	}
-	kubeconfig := os.Getenv(KUBECONFIG)
+	kubeconfig := cfg.KubeConfig
 	if kubeconfig == "" {
 		if home := homedir.HomeDir(); home != "" {
 			kubeconfig = filepath.Join(home, ".kube", "config")
 		}
 	}
-	if _, err := os.Stat(kubeconfig); os.IsNotExist(err) {
-		return nil, fmt.Errorf("kubeconfig not found at %s", kubeconfig)
+	if _, err := os.Stat(cfg.KubeConfig); os.IsNotExist(err) {
+		return nil, fmt.Errorf("kubeconfig not found at %s", cfg.KubeConfig)
 	}
-	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+	return clientcmd.BuildConfigFromFlags("", cfg.KubeConfig)
 }
 
 func NewClientFromRawConfig(raw []byte) (*KubeClient, error) {

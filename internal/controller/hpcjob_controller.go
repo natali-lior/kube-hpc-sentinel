@@ -19,12 +19,14 @@ package controller
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	hpcv1alpha1 "github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // HPCJobReconciler reconciles a HPCJob object
@@ -39,17 +41,16 @@ type HPCJobReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the HPCJob object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.4/pkg/reconcile
 func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	l := log.With().Str("job_name", req.Name).Str("namespace", req.Namespace).Logger()
+	l.Info().Msg("Starting reconciliation")
 
-	// TODO(user): your logic here
+	hpcJob, err := r.fetchResource(ctx, req, &l)
+	if err != nil {
+		l.Error().Msg("Failed to fetch HPCJob")
+		return ctrl.Result{}, nil
+	}
+	l.Info().Str("image", hpcJob.Spec.Image).Int32("gpus", hpcJob.Spec.GPUCount).Msg("Successfully loaded HPCJob spec")
 
 	return ctrl.Result{}, nil
 }
@@ -60,4 +61,16 @@ func (r *HPCJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&hpcv1alpha1.HPCJob{}).
 		Named("hpcjob").
 		Complete(r)
+}
+
+func (r *HPCJobReconciler) fetchResource(ctx context.Context, req ctrl.Request, l *zerolog.Logger) (hpcv1alpha1.HPCJob, error) {
+	var hpcJob hpcv1alpha1.HPCJob
+	if err := r.Get(ctx, req.NamespacedName, &hpcJob); err != nil {
+		if errors.IsNotFound(err) {
+			l.Info().Msg("HPCJob resource not found. Skipping...")
+			return hpcJob, err
+		}
+		return hpcJob, err
+	}
+	return hpcJob, nil
 }
