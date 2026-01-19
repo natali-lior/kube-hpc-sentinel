@@ -306,6 +306,12 @@ func (k *KindProvider) installKubePrometheusStack() error {
 			"tolerations": []map[string]any{
 				{"key": "node-role.kubernetes.io/observability", "operator": "Exists", "effect": "NoSchedule"},
 			},
+			"sidecar": map[string]any{
+				"enabled":         true,
+				"label":           "grafana_dashboard",
+				"labelValue":      "1",
+				"searchNamespace": "ALL",
+			},
 		},
 		"kubeEtcd": map[string]any{
 			"enabled": false,
@@ -420,11 +426,16 @@ func (k *KindProvider) launchMockEnvironment() error {
 
 	cmd := exec.Command("skaffold", "dev",
 		"--cache-artifacts=false",
+		"--force",
+		"--trigger=polling",
 		"--port-forward=user")
 	cmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfigPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Dir = "."
 
 	log.Println("Skaffold will now watch for changes and auto-reload...")
+	log.Println("Tip: If auto-reload stops working, manually restart skaffold:")
+	log.Printf("  KUBECONFIG=%s skaffold dev --force --trigger=polling --port-forward=user\n", kubeconfigPath)
 	return cmd.Start()
 }

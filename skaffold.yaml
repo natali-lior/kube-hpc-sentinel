@@ -1,45 +1,26 @@
 apiVersion: skaffold/v4beta3
 kind: Config
 metadata:
-  name: scenario-manager-config
+  name: hpc-sentinel
 build:
   local:
-    push: false
+    push: false 
     useBuildkit: true
-    concurrency: 1
+  tagPolicy:
+    sha256: {} 
   artifacts:
     - image: scenario-manager
       context: .
       docker:
         dockerfile: build/scenario-manager/Dockerfile
-        noCache: true
-manifests:
-  rawYaml:
-    - internal/provisioner/manifests/scenario-manager.yaml
-deploy:
-  kubectl: {}
-
----
-
-apiVersion: skaffold/v4beta3
-kind: Config
-metadata:
-  name: exporter-config
-requires:
-  - configs: [scenario-manager-config]
-build:
-  local:
-    push: false
-    useBuildkit: true
-    concurrency: 1
-  artifacts:
     - image: dcgm-mock-exporter
       context: .
       docker:
         dockerfile: build/dcgm-mock-exporter/Dockerfile
-        noCache: true
 manifests:
   rawYaml:
+    - internal/provisioner/manifests/scenario-manager.yaml
     - internal/provisioner/manifests/dcgm-mock-exporter.yaml
+    - internal/provisioner/manifests/grafana-dashboard.yaml
 deploy:
   kubectl: {}
