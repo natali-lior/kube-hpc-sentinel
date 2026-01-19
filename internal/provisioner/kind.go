@@ -379,13 +379,14 @@ func (k *KindProvider) installChart(
 }
 
 func (k *KindProvider) launchMockEnvironment() error {
+	log.Println("Cleaning up any existing skaffold processes...")
+	killCmd := exec.Command("pkill", "-f", "skaffold")
+	_ = killCmd.Run() 
+
 	log.Println("starting skaffold dev mode for continuous deployment...")
 
 	kubeconfigPath := filepath.Join(os.TempDir(), k.ClusterName+"-kubeconfig.yaml")
 
-	// Use 'skaffold dev' for continuous development with auto-reload
-	// --cache-artifacts=false forces rebuild instead of using cached images
-	// --port-forward enables automatic port forwarding
 	cmd := exec.Command("skaffold", "dev",
 		"--cache-artifacts=false",
 		"--port-forward=user")

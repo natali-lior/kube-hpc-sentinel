@@ -19,13 +19,16 @@ spec:
         - key: "node-role.kubernetes.io/observability"
           operator: "Exists"
           effect: "NoSchedule"
+      serviceAccountName: dcgm-mock-exporter-sa
       containers:
       - name: exporter
         image: dcgm-mock-exporter:latest
         imagePullPolicy: IfNotPresent
         env:
-        - name: METRICS_DIR_PATH
-          value: "/etc/metrics"
+        - name: MAP_NAME
+          value: "dcgm-mock-data"
+        - name: MAP_NAMESPACE
+          value: "monitoring"
         - name: PORT
           value: "9400"
         resources:
@@ -37,13 +40,35 @@ spec:
             memory: "64Mi"
         ports:
         - containerPort: 9400
-        volumeMounts:
-        - name: metrics-vol
-          mountPath: /etc/metrics
-      volumes:
-      - name: metrics-vol
-        configMap:
-          name: dcgm-mock-data
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dcgm-mock-exporter-sa
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dcgm-mock-exporter-role
+  namespace: monitoring
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dcgm-mock-exporter-rb
+  namespace: monitoring
+subjects:
+- kind: ServiceAccount
+  name: dcgm-mock-exporter-sa
+roleRef:
+  kind: Role
+  name: dcgm-mock-exporter-role
+  apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: v1
 kind: Service
