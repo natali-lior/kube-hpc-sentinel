@@ -220,21 +220,22 @@ func (k *KindProvider) nvidiaLabels() map[string]string {
 	randomCount := counts[rand.IntN(len(counts))]
 
 	return map[string]string{
-		"hpc-sentinel/node-type":               "gpu-worker",
-		"nvidia.com/gpu.count":                 fmt.Sprint(randomCount),
-		"nvidia.com/gpu.family":                selection.Family,
-		"nvidia.com/gpu.product":               selection.Product,
-		"nvidia.com/gpu.machine":               "kind-worker-mock",
-		"nvidia.com/gpu.present":               "true",
-		"nvidia.com/cuda.driver.major":         "535",
-		"nvidia.com/cuda.driver.minor":         "104",
-		"nvidia.com/cuda.runtime.major":        "12",
-		"nvidia.com/cuda.runtime.minor":        "2",
-		"nvidia.com/gpu.deploy.device-plugin":  "true",
-		"nvidia.com/gpu.deploy.dcgm-exporter":  "true",
-		"nvidia.com/gpu.deploy.operator-state": "unmanaged",
-		"run.ai/simulated-gpu-node-pool":       poolName,
-		"run.ai/fake.gpu":                      "true",
+		"hpc-sentinel/node-type":                    "gpu-worker",
+		"nvidia.com/gpu.count":                      fmt.Sprint(randomCount),
+		"nvidia.com/gpu.family":                     selection.Family,
+		"nvidia.com/gpu.product":                    selection.Product,
+		"nvidia.com/gpu.machine":                    "kind-worker-mock",
+		"nvidia.com/gpu.present":                    "true",
+		"nvidia.com/cuda.driver.major":              "535",
+		"nvidia.com/cuda.driver.minor":              "104",
+		"nvidia.com/cuda.runtime.major":             "12",
+		"nvidia.com/cuda.runtime.minor":             "2",
+		"nvidia.com/gpu.deploy.device-plugin":       "true",
+		"nvidia.com/gpu.deploy.dcgm-exporter":       "true",
+		"nvidia.com/gpu.deploy.operator-state":      "unmanaged",
+		"run.ai/simulated-gpu-node-pool":            poolName,
+		"run.ai/fake.gpu":                           "true",
+		"node-role.kubernetes.io/runai-dynamic-mig": "true",
 	}
 }
 
@@ -378,9 +379,20 @@ func (k *KindProvider) installChart(
 }
 
 func (k *KindProvider) launchMockEnvironment() error {
-	log.Println("starting skaffold for mock apps...")
-	cmd := exec.Command("skaffold", "run", "--tail")
+	log.Println("starting skaffold dev mode for continuous deployment...")
+
+	kubeconfigPath := filepath.Join(os.TempDir(), k.ClusterName+"-kubeconfig.yaml")
+
+	// Use 'skaffold dev' for continuous development with auto-reload
+	// --cache-artifacts=false forces rebuild instead of using cached images
+	// --port-forward enables automatic port forwarding
+	cmd := exec.Command("skaffold", "dev",
+		"--cache-artifacts=false",
+		"--port-forward=user")
+	cmd.Env = append(os.Environ(), "KUBECONFIG="+kubeconfigPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	log.Println("Skaffold will now watch for changes and auto-reload...")
 	return cmd.Start()
 }

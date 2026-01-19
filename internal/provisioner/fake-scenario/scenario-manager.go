@@ -20,6 +20,8 @@ import (
 const (
 	ENV_MAP_NAME      = "MAP_NAME"
 	ENV_MAP_NAMESPACE = "MAP_NAMESPACE"
+
+	GPU_COUNT_LABEL = "nvidia.com/gpu.count"
 )
 
 var (
@@ -52,16 +54,16 @@ func (s *ScenarioManager) InitializeClusterMap() error {
 	}
 
 	for _, node := range nodes.Items {
-		countStr, ok := node.Labels["gpu-count"]
+		countStr, ok := node.Labels[GPU_COUNT_LABEL]
 		if !ok {
-			log.Printf("warning: node %s missing 'gpu-count' label", node.Name)
+			log.Printf("warning: node %s missing '%s' label", node.Name, GPU_COUNT_LABEL)
 			continue
 		}
 
 		var count int
 		_, err := fmt.Sscanf(countStr, "%d", &count)
 		if err != nil {
-			log.Printf("error parsing gpu-count on %s: %v", node.Name, err)
+			log.Printf("error parsing '%s' on %s: %v", node.Name, GPU_COUNT_LABEL, err)
 			continue
 		}
 

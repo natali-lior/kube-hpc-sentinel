@@ -5,6 +5,8 @@ metadata:
 build:
   local:
     push: false
+    useBuildkit: true
+    concurrency: 1
   artifacts:
     - image: scenario-manager
       context: .
@@ -27,6 +29,8 @@ requires:
 build:
   local:
     push: false
+    useBuildkit: true
+    concurrency: 1
   artifacts:
     - image: dcgm-mock-exporter
       context: .
