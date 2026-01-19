@@ -3,6 +3,19 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
   # 1. Control Plane
   - role: control-plane
+    kubeadmConfigPatches:
+    - |
+      kind: ClusterConfiguration
+      controllerManager:
+        extraArgs:
+          bind-address: 0.0.0.0
+      scheduler:
+        extraArgs:
+          bind-address: 0.0.0.0
+      etcd:
+        local:
+          extraArgs:
+            listen-metrics-urls: http://0.0.0.0:2381
 
   # 2. Infra Node (Tainted)
   # For: Ingress controllers, cert-manager, etc.

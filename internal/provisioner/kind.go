@@ -307,6 +307,37 @@ func (k *KindProvider) installKubePrometheusStack() error {
 				{"key": "node-role.kubernetes.io/observability", "operator": "Exists", "effect": "NoSchedule"},
 			},
 		},
+		"kubeEtcd": map[string]any{
+			"enabled": false,
+		},
+		"kubeProxy": map[string]any{
+			"enabled": false,
+		},
+		"kubeControllerManager": map[string]any{
+			"enabled":   true,
+			"endpoints": []string{},
+			"service": map[string]any{
+				"enabled":    true,
+				"port":       10257,
+				"targetPort": 10257,
+			},
+			"serviceMonitor": map[string]any{
+				"https":                true,
+				"insecuritySkipVerify": true,
+			},
+		},
+		"kubeScheduler": map[string]any{
+			"enabled": true,
+			"service": map[string]any{
+				"enabled":    true,
+				"port":       10259,
+				"targetPort": 10259,
+			},
+			"serviceMonitor": map[string]any{
+				"https":              true,
+				"insecureSkipVerify": true,
+			},
+		},
 	}
 	return k.installChart(
 		"prometheus-community",
@@ -381,7 +412,7 @@ func (k *KindProvider) installChart(
 func (k *KindProvider) launchMockEnvironment() error {
 	log.Println("Cleaning up any existing skaffold processes...")
 	killCmd := exec.Command("pkill", "-f", "skaffold")
-	_ = killCmd.Run() 
+	_ = killCmd.Run()
 
 	log.Println("starting skaffold dev mode for continuous deployment...")
 
