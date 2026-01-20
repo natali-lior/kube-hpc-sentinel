@@ -47,10 +47,9 @@ func GetConfig(cfg *config.Config) (*rest.Config, error) {
 	if config, err := rest.InClusterConfig(); err == nil {
 		return config, nil
 	}
-	kubeconfig := cfg.KubeConfig
-	if kubeconfig == "" {
+	if cfg.KubeConfig == "" {
 		if home := homedir.HomeDir(); home != "" {
-			kubeconfig = filepath.Join(home, ".kube", "config")
+			cfg.KubeConfig = filepath.Join(home, ".kube", "config")
 		}
 	}
 	if _, err := os.Stat(cfg.KubeConfig); os.IsNotExist(err) {

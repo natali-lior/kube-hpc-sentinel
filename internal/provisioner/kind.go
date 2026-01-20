@@ -222,21 +222,22 @@ func (k *KindProvider) nvidiaLabels() map[string]string {
 	randomCount := counts[rand.IntN(len(counts))]
 
 	return map[string]string{
-		"hpc-sentinel/node-type":                    "gpu-worker",
-		"nvidia.com/gpu.count":                      fmt.Sprint(randomCount),
-		"nvidia.com/gpu.family":                     selection.Family,
-		"nvidia.com/gpu.product":                    selection.Product,
-		"nvidia.com/gpu.machine":                    "kind-worker-mock",
-		"nvidia.com/gpu.present":                    "true",
-		"nvidia.com/cuda.driver.major":              "535",
-		"nvidia.com/cuda.driver.minor":              "104",
-		"nvidia.com/cuda.runtime.major":             "12",
-		"nvidia.com/cuda.runtime.minor":             "2",
-		"nvidia.com/gpu.deploy.device-plugin":       "true",
-		"nvidia.com/gpu.deploy.dcgm-exporter":       "true",
-		"nvidia.com/gpu.deploy.operator-state":      "unmanaged",
-		"run.ai/simulated-gpu-node-pool":            poolName,
-		"run.ai/fake.gpu":                           "true",
+		"hpc-sentinel/node-type":               "gpu-worker",
+		"nvidia.com/gpu.count":                 fmt.Sprint(randomCount),
+		"nvidia.com/gpu.family":                selection.Family,
+		"nvidia.com/gpu.product":               selection.Product,
+		"nvidia.com/gpu.machine":               "kind-worker-mock",
+		"nvidia.com/gpu.present":               "true",
+		"nvidia.com/cuda.driver.major":         "535",
+		"nvidia.com/cuda.driver.minor":         "104",
+		"nvidia.com/cuda.runtime.major":        "12",
+		"nvidia.com/cuda.runtime.minor":        "2",
+		"nvidia.com/gpu.deploy.device-plugin":  "true",
+		"nvidia.com/gpu.deploy.dcgm-exporter":  "true",
+		"nvidia.com/gpu.deploy.operator-state": "unmanaged",
+		"run.ai/simulated-gpu-node-pool":       poolName,
+		"run.ai/fake.gpu":                      "true",
+		// "run.ai/gpu-health":                         "healthy",
 		"node-role.kubernetes.io/runai-dynamic-mig": "true",
 	}
 }
@@ -285,6 +286,14 @@ func (k *KindProvider) installFakeGpuOperator() error {
 		map[string]any{
 			"nodeSelector": map[string]string{"nvidia.com/gpu.present": "true"},
 			"privileged":   true,
+			// "tolerations": []map[string]any{
+			// 	{
+			// 		"key":      "nvidia.com/gpu",
+			// 		"operator": "Equal",
+			// 		"value":    "true",
+			// 		"effect":   "NoSchedule",
+			// 	},
+			// },
 			"topology": map[string]any{
 				"nodePools": nodePools,
 			},
@@ -441,3 +450,34 @@ func (k *KindProvider) launchMockEnvironment() error {
 	log.Printf("  KUBECONFIG=%s skaffold dev --force --trigger=polling --port-forward=user\n", kubeconfigPath)
 	return cmd.Start()
 }
+
+// func (k *KindProvider) waitForGpuCapacity(client *kubernetes.Clientset) error {
+// 	log.Println("Waiting for Kubelet to register GPU capacity...")
+// 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+// 	defer cancel()
+
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			return fmt.Errorf("timed out waiting for GPU capacity to register")
+// 		case <-time.After(10 * time.Second):
+// 			nodes, _ := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+// 				LabelSelector: "hpc-sentinel/node-type=gpu-worker",
+// 			})
+
+// 			allReady := true
+// 			for _, node := range nodes.Items {
+// 				qty := node.Status.Capacity["nvidia.com/gpu"]
+// 				if qty.Value() == 0 {
+// 					allReady = false
+// 					log.Printf("... Node %s still reporting 0 GPUs", node.Name)
+// 					break
+// 				}
+// 			}
+// 			if allReady && len(nodes.Items) > 0 {
+// 				log.Println("✓ All GPU workers reporting capacity.")
+// 				return nil
+// 			}
+// 		}
+// 	}
+// }

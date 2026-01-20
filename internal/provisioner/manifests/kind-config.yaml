@@ -22,6 +22,9 @@ nodes:
   - role: worker
     labels:
       hpc-sentinel/node-type: "infra"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -36,6 +39,9 @@ nodes:
   - role: worker
     labels:
       hpc-sentinel/node-type: "observability"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
     kubeadmConfigPatches:
       - |
         kind: JoinConfiguration
@@ -50,9 +56,15 @@ nodes:
   - role: worker
     labels:
       hpc-sentinel/node-type: "app"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
   - role: worker
     labels:
       hpc-sentinel/node-type: "app"
+    extraMounts:
+      - hostPath: /var/lib/kubelet/device-plugins
+        containerPath: /var/lib/kubelet/device-plugins
 
   # 6-10. GPU Worker Nodes (Labeled)
   # Target for the Fake GPU Operator & Sentinel monitoring
@@ -60,6 +72,14 @@ nodes:
     labels:
       nvidia.com/gpu.present: "true"
       hpc-sentinel/node-type: "gpu-worker"
+    kubeadmConfigPatches:
+      - |
+        kind: JoinConfiguration
+        nodeRegistration:
+          taints:
+            - key: "nvidia.com/gpu"
+              value: "true"
+              effect: "NoSchedule"
     extraMounts:
       - hostPath: /var/lib/kubelet/device-plugins
         containerPath: /var/lib/kubelet/device-plugins
