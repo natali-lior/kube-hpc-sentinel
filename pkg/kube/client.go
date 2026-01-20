@@ -1,15 +1,26 @@
 package kube
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
+	"github.com/rs/zerolog/log"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+)
+
+const (
+	GPU_NODE_LABEL_INDICATOR = "nvidia.com/gpu.count"
 )
 
 type KubeClient struct {
@@ -58,4 +69,31 @@ func NewClientFromRawConfig(raw []byte) (*KubeClient, error) {
 		return nil, err
 	}
 	return &KubeClient{Kube: clientset, Config: config}, nil
+}
+
+func (k *KubeClient) GetClusterGPUNodes(ctx context.Context) ([]corev1.Node, error) {
+	l := log.Ctx(ctx)
+	gpuLabelExists, err := labels.NewRequirement(GPU_NODE_LABEL_INDICATOR, selection.Exists, nil)
+	if err != nil {
+		return nil, err
+	}
+	selector := labels.NewSelector().Add(*gpuLabelExists)
+	nodes, err := k.Kube.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+		LabelSelector: selector.String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	var validNodes []corev1.Node
+	for _, node := range nodes.Items {
+		countStr := node.Labels[GPU_NODE_LABEL_INDICATOR]
+		count, err := strconv.Atoi(countStr)
+		if err != nil || count <= 0 {
+			l.Warn().Str("node", node.Name).Str("val", countStr).Msg("skipping node: invalid GPU count label")
+			continue
+		}
+		validNodes = append(validNodes, node)
+	}
+	l.Info().Int("count", len(validNodes)).Msg("successfully discovered GPU nodes")
+	return validNodes, nil
 }

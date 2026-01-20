@@ -26,7 +26,6 @@ import (
 
 	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	hpcv1alpha1 "github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -44,9 +43,10 @@ type HPCJobReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	l := log.With().Str("job_name", req.Name).Str("namespace", req.Namespace).Logger()
+	ctx = l.WithContext(ctx)
 	l.Info().Msg("Starting reconciliation")
 
-	hpcJob, err := r.fetchResource(ctx, req, &l)
+	hpcJob, err := r.fetchCRDResource(ctx, req)
 	if err != nil {
 		l.Error().Msg("Failed to fetch HPCJob")
 		return ctrl.Result{}, nil
@@ -73,7 +73,8 @@ func (r *HPCJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *HPCJobReconciler) fetchResource(ctx context.Context, req ctrl.Request, l *zerolog.Logger) (hpcv1alpha1.HPCJob, error) {
+func (r *HPCJobReconciler) fetchCRDResource(ctx context.Context, req ctrl.Request) (hpcv1alpha1.HPCJob, error) {
+	l := log.Ctx(ctx)
 	var hpcJob hpcv1alpha1.HPCJob
 	if err := r.Get(ctx, req.NamespacedName, &hpcJob); err != nil {
 		if errors.IsNotFound(err) {
