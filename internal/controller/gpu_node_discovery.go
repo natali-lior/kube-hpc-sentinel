@@ -4,6 +4,7 @@ import (
 	"context"
 
 	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
+	prom "github.com/natali-lior/kube-hpc-sentinel/pkg/prometheus"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -19,12 +20,25 @@ var (
 	}
 )
 
-func ListGPUNodes(ctx context.Context, kubeClient *kube.KubeClient) ([]corev1.Node, error) {
+func ListGPUNodes(ctx context.Context, kubeClient *kube.KubeClient, promClient *prom.MetricsProvider) ([]corev1.Node, error) {
 	gpuNodes, err := kubeClient.GetClusterGPUNodes(ctx)
 	if err != nil {
 		return nil, err
 	}
 	healthyNodes := gpuNodes //[]corev1.Node{}
+	// healthScan, err := promClient.GetFullGPUClusterHealthCheck(ctx)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// for _, gpuNode := range gpuNodes {
+	// 	gpuCores, exists := healthScan[prom.NodeName(gpuNode.Name)]
+	// 	if !exists {
+	// 		log.Ctx(ctx).Warn().Msgf("gpu node does not export metrics [%v]", gpuNode.Name)
+	// 		// todo: metric for node does not export metrics error
+	// 		continue
+	// 	}
+
+	// }
 
 	return healthyNodes, nil
 }

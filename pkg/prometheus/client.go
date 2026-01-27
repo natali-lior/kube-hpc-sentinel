@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/api"
-	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
+	prom_v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -46,7 +46,7 @@ var (
 )
 
 type MetricsProvider struct {
-	api v1.API
+	prom_api prom_v1.API
 }
 
 func NewMetricsProvider(address string) (*MetricsProvider, error) {
@@ -54,12 +54,37 @@ func NewMetricsProvider(address string) (*MetricsProvider, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &MetricsProvider{api: v1.NewAPI(client)}, nil
+	return &MetricsProvider{prom_api: prom_v1.NewAPI(client)}, nil
 }
 
 func (m *MetricsProvider) GetFullGPUClusterHealthCheck(ctx context.Context) (GpuClusterHealthMetricsScan, error) {
-	GpuClusterHealthMetricsScan := map[NodeName]map[GpuName]map[MetricName]float32{}
-	return GpuClusterHealthMetricsScan, nil
+	r, warn, err := m.prom_api.Query(ctx, GpuClusterHealthScanPrmQuery, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	if len(warn) > 0 {
+		log.Ctx(ctx).Warn().Msgf("prom client execution warnings: %v\n", warn)
+	}
+	vec, ok := r.(model.Vector)
+	if !ok {
+		return nil, fmt.Errorf("expected prometheus vector, got %v | %T", r, r.Type())
+	}
+	scan := make(GpuClusterHealthMetricsScan)
+	for _, sample := range vec {
+		node := NodeName(sample.Metric["node"])
+		gpu := GpuName(sample.Metric["gpu"])
+		metricName := MetricName(sample.Metric["__name__"])
+		val := float32(sample.Value)
+		if scan[node] == nil {
+			scan[node] = make(map[GpuName]map[MetricName]float32)
+		}
+		if scan[node][gpu] == nil {
+			scan[node][gpu] = make(map[MetricName]float32)
+		}
+		scan[node][gpu][metricName] = val
+	}
+
+	return scan, nil
 }
 
 func (m *MetricsProvider) GetFullGPUNodeHealthCheck(ctx context.Context, nodeName, gpuName string) (map[MetricName]float64, error) {
@@ -89,7 +114,7 @@ func (m *MetricsProvider) GetDCGMMetric(ctx context.Context, metric MetricName, 
 
 func (m *MetricsProvider) executeNodeGpuMetric(ctx context.Context, query, nodeName, gpuName string) (float64, error) {
 	l := log.Ctx(ctx)
-	val, warns, err := m.api.Query(ctx, query, time.Now())
+	val, warns, err := m.prom_api.Query(ctx, query, time.Now())
 	if err != nil {
 		return 0, fmt.Errorf("error querying prometheus: %v", err)
 	}

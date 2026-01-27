@@ -40,6 +40,7 @@ import (
 	"github.com/natali-lior/kube-hpc-sentinel/internal/controller"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/prometheus"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -189,10 +190,11 @@ func main() {
 	}
 
 	if err := (&controller.HPCJobReconciler{
-		Client:     mgr.GetClient(),
-		Scheme:     mgr.GetScheme(),
-		Cfg:        cfg,
-		KubeClient: kubeClient,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Cfg:           cfg,
+		KubeClient:    kubeClient,
+		PromAPIClient: &prometheus.MetricsProvider{},
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HPCJob")
 		os.Exit(1)

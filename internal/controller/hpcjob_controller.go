@@ -30,6 +30,7 @@ import (
 	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/prometheus"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,9 +39,10 @@ import (
 // HPCJobReconciler reconciles a HPCJob object
 type HPCJobReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	Cfg        *config.Config
-	KubeClient *kube.KubeClient
+	Scheme        *runtime.Scheme
+	Cfg           *config.Config
+	KubeClient    *kube.KubeClient
+	PromAPIClient *prometheus.MetricsProvider
 }
 
 // +kubebuilder:rbac:groups=hpc.nvidia.com,resources=hpcjobs,verbs=get;list;watch;create;update;patch;delete
