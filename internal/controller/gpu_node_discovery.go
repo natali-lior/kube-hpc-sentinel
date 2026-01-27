@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"context"
+
+	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -15,6 +18,16 @@ var (
 		"ampere": true,
 	}
 )
+
+func ListGPUNodes(ctx context.Context, kubeClient *kube.KubeClient) ([]corev1.Node, error) {
+	gpuNodes, err := kubeClient.GetClusterGPUNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	healthyNodes := gpuNodes //[]corev1.Node{}
+
+	return healthyNodes, nil
+}
 
 func IsNvlinkCapable(node corev1.Node) bool {
 	if _, ok := node.Labels[MULTI_NODE_NVLINK_INDICATOR]; ok {

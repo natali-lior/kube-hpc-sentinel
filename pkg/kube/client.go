@@ -10,6 +10,7 @@ import (
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -20,7 +21,9 @@ import (
 )
 
 const (
-	GPU_NODE_LABEL_INDICATOR = "nvidia.com/gpu.count"
+	GPU_NODE_LABEL_INDICATOR    = "nvidia.com/gpu.count"
+	GPU_CORES_CAPACITY          = "nvidia.com/gpu"
+	HIGH_DENSITY_AFFINITY_LABEL = "hpc-sentinel/density"
 )
 
 type KubeClient struct {
@@ -28,8 +31,13 @@ type KubeClient struct {
 	Config *rest.Config
 }
 
+type GpuResourceStatus struct {
+	Allocated   int64
+	Allocatable int64
+}
+
 func NewKubeClient(cfg *config.Config) (*KubeClient, error) {
-	config, err := GetConfig(cfg)
+	config, err := GetClientConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +51,7 @@ func NewKubeClient(cfg *config.Config) (*KubeClient, error) {
 	}, nil
 }
 
-func GetConfig(cfg *config.Config) (*rest.Config, error) {
+func GetClientConfig(cfg *config.Config) (*rest.Config, error) {
 	if config, err := rest.InClusterConfig(); err == nil {
 		return config, nil
 	}
@@ -89,10 +97,53 @@ func (k *KubeClient) GetClusterGPUNodes(ctx context.Context) ([]corev1.Node, err
 		count, err := strconv.Atoi(countStr)
 		if err != nil || count <= 0 {
 			l.Warn().Str("node", node.Name).Str("val", countStr).Msg("skipping node: invalid GPU count label")
+			// export metric - counter for invalid gpu nodes / total count == 0
 			continue
 		}
 		validNodes = append(validNodes, node)
 	}
 	l.Info().Int("count", len(validNodes)).Msg("successfully discovered GPU nodes")
 	return validNodes, nil
+}
+
+func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.Node) (gpuStatus GpuResourceStatus, err error) {
+	const gpuResourceName = corev1.ResourceName(GPU_CORES_CAPACITY)
+	allocatableGpus := gpuNode.Status.Allocatable[gpuResourceName]
+	allocatableCount := allocatableGpus.Value()
+	podList, err := k.Kube.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: "spec.nodeName=" + gpuNode.Name,
+	})
+	if err != nil {
+		return GpuResourceStatus{}, err
+	}
+	var allocatedCount int64
+	for _, pod := range podList.Items {
+		if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+			continue
+		}
+		for _, container := range pod.Spec.Containers {
+			if req, ok := container.Resources.Requests[gpuResourceName]; ok {
+				allocatedCount += req.Value()
+			}
+		}
+	}
+
+	return GpuResourceStatus{
+		Allocated:   allocatedCount,
+		Allocatable: allocatableCount,
+	}, nil
+}
+
+func (k *KubeClient) LabelHighDensityNode(ctx context.Context, gpuNode *corev1.Node, density int) error {
+	if gpuNode.Labels == nil {
+		gpuNode.Labels = make(map[string]string)
+	}
+	gpuNode.Labels[HIGH_DENSITY_AFFINITY_LABEL] = fmt.Sprint(density)
+	_, err := k.Kube.CoreV1().Nodes().Update(ctx, gpuNode, metav1.UpdateOptions{})
+	return err
+}
+
+func (k *KubeClient) CreatePod(ctx context.Context, pod *v1.Pod) error {
+	_, err := k.Kube.CoreV1().Pods(pod.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	return err
 }

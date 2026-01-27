@@ -23,6 +23,7 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -37,6 +38,8 @@ import (
 
 	hpcv1alpha1 "github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	"github.com/natali-lior/kube-hpc-sentinel/internal/controller"
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
+	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -178,9 +181,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	cfg := config.Load()
+	kubeClient, err := kube.NewKubeClient(cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to start manager with failing kube client")
+		os.Exit(1)
+	}
+
 	if err := (&controller.HPCJobReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:     mgr.GetClient(),
+		Scheme:     mgr.GetScheme(),
+		Cfg:        cfg,
+		KubeClient: kubeClient,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HPCJob")
 		os.Exit(1)

@@ -135,7 +135,7 @@ func (s *ScenarioManager) generateMetrics(nodeName string, gpuId string) string 
 		too low: GPU cannot talk to each other, distributed training jobs will hang forever or crash with NCCL_ERROR
 		decision: taint the nodes of the rack, they are out of use until fixed
 		*/
-		fmt.Sprintf("dcgm_nvlink_bandwidth_total{node=\"%s\", gpu=\"%s\"} %.0f", nodeName, gpuId, weightedRand(320, 400, 0, 80, chaos)),
+		fmt.Sprintf("dcgm_nvlink_bandwidth_total{node=\"%s\", gpu=\"%s\"} %.0f", nodeName, gpuId, weightedRand(250, 400, 0, 80, chaos)),
 	}
 	return strings.Join(metrics, "\n")
 }

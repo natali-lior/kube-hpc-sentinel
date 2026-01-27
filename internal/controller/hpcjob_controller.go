@@ -18,21 +18,29 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
-	hpcv1alpha1 "github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
+	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
+	kube "github.com/natali-lior/kube-hpc-sentinel/pkg/kube"
 	"github.com/rs/zerolog/log"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // HPCJobReconciler reconciles a HPCJob object
 type HPCJobReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	Cfg        *config.Config
+	KubeClient *kube.KubeClient
 }
 
 // +kubebuilder:rbac:groups=hpc.nvidia.com,resources=hpcjobs,verbs=get;list;watch;create;update;patch;delete
@@ -68,14 +76,14 @@ func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 func (r *HPCJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&hpcv1alpha1.HPCJob{}).
+		For(&v1alpha1.HPCJob{}).
 		Named("hpcjob").
 		Complete(r)
 }
 
-func (r *HPCJobReconciler) fetchCRDResource(ctx context.Context, req ctrl.Request) (hpcv1alpha1.HPCJob, error) {
+func (r *HPCJobReconciler) fetchCRDResource(ctx context.Context, req ctrl.Request) (v1alpha1.HPCJob, error) {
 	l := log.Ctx(ctx)
-	var hpcJob hpcv1alpha1.HPCJob
+	var hpcJob v1alpha1.HPCJob
 	if err := r.Get(ctx, req.NamespacedName, &hpcJob); err != nil {
 		if errors.IsNotFound(err) {
 			l.Info().Msg("HPCJob resource not found. Skipping...")
@@ -87,6 +95,7 @@ func (r *HPCJobReconciler) fetchCRDResource(ctx context.Context, req ctrl.Reques
 }
 
 func (r *HPCJobReconciler) handlePending(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+
 	return ctrl.Result{}, nil
 }
 
@@ -97,3 +106,36 @@ func (r *HPCJobReconciler) handleRunning(ctx context.Context, job *v1alpha1.HPCJ
 func (r *HPCJobReconciler) handleFailed(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
 	return ctrl.Result{}, nil
 }
+
+func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HPCJob, resourceStat kube.GpuResourceStatus) error {
+	hpcDeployableName := fmt.Sprint(hpcJob.Name, "-worker")
+	gpuQuantity := resource.MustParse(strconv.Itoa(int(hpcJob.Spec.GPUCount)))
+	hpcPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      hpcDeployableName,
+			Namespace: hpcJob.Namespace,
+		},
+		Spec: corev1.PodSpec{
+			NodeSelector: map[string]string{
+				kube.HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(resourceStat.Allocated),
+			},
+			Containers: []corev1.Container{
+				{
+					Name:  hpcDeployableName,
+					Image: hpcJob.Spec.Image,
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							kube.GPU_CORES_CAPACITY: gpuQuantity,
+						},
+						Requests: corev1.ResourceList{
+							kube.GPU_CORES_CAPACITY: gpuQuantity,
+						},
+					},
+				},
+			},
+		},
+	}
+	return r.KubeClient.CreatePod(ctx, hpcPod)
+}
+
+// todo: now we must maintain the affinity count per cycle and update the nodes
