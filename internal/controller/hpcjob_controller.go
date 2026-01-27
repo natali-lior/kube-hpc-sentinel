@@ -238,6 +238,9 @@ func (r *HPCJobReconciler) calculateClusterCapacityForJob(ctx context.Context, h
 }
 
 func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HPCJob, score int) error {
+	if score > 0 {
+		score -= 1
+	}
 	gpuQuantity := resource.MustParse(strconv.Itoa(int(hpcJob.Spec.GPUCount)))
 	hpcPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
