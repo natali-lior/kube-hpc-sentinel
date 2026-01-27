@@ -18,8 +18,8 @@ type GpuName string
 type GpuClusterHealthMetricsScan map[NodeName]map[GpuName]map[MetricName]float32
 
 type HealthRange struct {
-	min float32
-	max float32
+	Min float32
+	Max float32
 }
 
 const (
@@ -35,13 +35,13 @@ const (
 var (
 	GpuClusterHealthScanPrmQuery = "{service=\"dcgm-mock-exporter\", node=~\".+\"}"
 	HealthMetrics                = map[MetricName]HealthRange{
-		GpuTemp:         {min: 35, max: 85},
-		MemCopyUtil:     {min: 0.1, max: 0.6},
-		FBUsage:         {min: 0.2, max: 0.7},
-		ECC_SBE_Errs:    {min: 0, max: 0},
-		PowerUsage:      {min: 100, max: 250},
-		GpuUtil:         {min: 0.3, max: 0.8},
-		NvlinkBandwidth: {min: 250, max: 400},
+		GpuTemp:         {Min: 35, Max: 85},
+		MemCopyUtil:     {Min: 0.1, Max: 0.6},
+		FBUsage:         {Min: 0.2, Max: 0.7},
+		ECC_SBE_Errs:    {Min: 0, Max: 0},
+		PowerUsage:      {Min: 100, Max: 250},
+		GpuUtil:         {Min: 0.3, Max: 0.8},
+		NvlinkBandwidth: {Min: 250, Max: 400},
 	}
 )
 

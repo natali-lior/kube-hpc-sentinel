@@ -18,12 +18,14 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/client-go/util/retry"
 )
 
 const (
 	GPU_NODE_LABEL_INDICATOR    = "nvidia.com/gpu.count"
 	GPU_CORES_CAPACITY          = "nvidia.com/gpu"
 	HIGH_DENSITY_AFFINITY_LABEL = "hpc-sentinel/density"
+	UNHEALTHY_TAINT_KEY         = "hpc-sentinel/unhealthy"
 )
 
 type KubeClient struct {
@@ -106,10 +108,14 @@ func (k *KubeClient) GetClusterGPUNodes(ctx context.Context) ([]corev1.Node, err
 	return validNodes, nil
 }
 
-func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.Node) (gpuStatus GpuResourceStatus, err error) {
+func (k *KubeClient) GetNodeAllocatableGPUs(ctx context.Context, gpuNode corev1.Node) int64 {
 	const gpuResourceName = corev1.ResourceName(GPU_CORES_CAPACITY)
 	allocatableGpus := gpuNode.Status.Allocatable[gpuResourceName]
-	allocatableCount := allocatableGpus.Value()
+	return allocatableGpus.Value()
+}
+
+func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.Node) (gpuStatus GpuResourceStatus, err error) {
+	allocatableCount := k.GetNodeAllocatableGPUs(ctx, gpuNode)
 	podList, err := k.Kube.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: "spec.nodeName=" + gpuNode.Name,
 	})
@@ -122,7 +128,7 @@ func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.N
 			continue
 		}
 		for _, container := range pod.Spec.Containers {
-			if req, ok := container.Resources.Requests[gpuResourceName]; ok {
+			if req, ok := container.Resources.Requests[corev1.ResourceName(GPU_CORES_CAPACITY)]; ok {
 				allocatedCount += req.Value()
 			}
 		}
@@ -146,4 +152,90 @@ func (k *KubeClient) LabelHighDensityNode(ctx context.Context, gpuNode *corev1.N
 func (k *KubeClient) CreatePod(ctx context.Context, pod *v1.Pod) error {
 	_, err := k.Kube.CoreV1().Pods(pod.Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	return err
+}
+
+func (k *KubeClient) GetPod(ctx context.Context, name string, namespace string) (corev1.Pod, error) {
+	pod, err := k.Kube.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	return *pod, err
+}
+
+func (k *KubeClient) IsolateUnhealthyNodes(ctx context.Context, unhealthyNodes []corev1.Node) error {
+	l := log.Ctx(ctx)
+	for _, node := range unhealthyNodes {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			found := false
+			for _, t := range node.Spec.Taints {
+				if t.Key == UNHEALTHY_TAINT_KEY {
+					found = true
+					break
+				}
+			}
+			if !found {
+				node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
+					Key:    UNHEALTHY_TAINT_KEY,
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				})
+			}
+
+			if node.Labels == nil {
+				node.Labels = make(map[string]string)
+			}
+			node.Labels[HIGH_DENSITY_AFFINITY_LABEL] = "0"
+
+			_, err := k.Kube.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
+			return err
+		})
+		if err != nil {
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to isolate unhealthy node")
+			continue
+		}
+		l.Info().Str("node", node.Name).Msg("node isolated and density zeroed")
+	}
+	return nil
+}
+
+// func (k *KubeClient) EvictHpcPod(ctx context.Context, podName string, namespace string) error {
+// 	eviction := &policyv1.Eviction{
+// 		ObjectMeta: v1.ObjectMeta{
+// 			Name:      podName,
+// 			Namespace: namespace,
+// 		},
+// 	}
+// 	// This honors PodDisruptionBudgets and allows for a graceful shutdown period
+// 	return k.Kube.PolicyV1().Evictions(namespace).Evict(ctx, eviction)
+// }
+
+func (k *KubeClient) RestoreHealthyNodes(ctx context.Context, nodeNames []corev1.Node) error {
+	l := log.Ctx(ctx)
+	for _, node := range nodeNames {
+		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+
+			newTaints := []corev1.Taint{}
+			for _, t := range node.Spec.Taints {
+				if t.Key != UNHEALTHY_TAINT_KEY {
+					newTaints = append(newTaints, t)
+				}
+			}
+			node.Spec.Taints = newTaints
+			status, err := k.GetGpuNodeAllocations(ctx, node)
+			if err != nil {
+				return err
+			}
+			available := status.Allocatable - status.Allocated
+			if node.Labels == nil {
+				node.Labels = make(map[string]string)
+			}
+			node.Labels[HIGH_DENSITY_AFFINITY_LABEL] = fmt.Sprint(available)
+
+			_, err = k.Kube.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
+			return err
+		})
+
+		if err != nil {
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to restore healthy node")
+			continue
+		}
+	}
+	return nil
 }
