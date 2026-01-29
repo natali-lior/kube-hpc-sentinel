@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
+	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"github.com/rs/zerolog/log"
 	corev1 "k8s.io/api/core/v1"
@@ -26,6 +28,8 @@ const (
 	GPU_CORES_CAPACITY          = "nvidia.com/gpu"
 	HIGH_DENSITY_AFFINITY_LABEL = "hpc-sentinel/density"
 	UNHEALTHY_TAINT_KEY         = "hpc-sentinel/unhealthy"
+
+	HPC_FINALIZER = "hpc-sentinel/finalizer"
 )
 
 type KubeClient struct {
@@ -238,4 +242,57 @@ func (k *KubeClient) RestoreHealthyNodes(ctx context.Context, nodeNames []corev1
 		}
 	}
 	return nil
+}
+
+func (k *KubeClient) DeletePod(ctx context.Context, name string, namespace string) error {
+	return k.Kube.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{})
+}
+
+func (k *KubeClient) ListPodsByName(ctx context.Context, namespace string, name string) ([]corev1.Pod, error) {
+	podList, err := k.Kube.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: "metadata.name=" + name,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return podList.Items, nil
+}
+
+func (k *KubeClient) AddResourceFinalizer(ctx context.Context, hpcJob *v1alpha1.HPCJob) error {
+	if strings.Contains(strings.Join(hpcJob.Finalizers, ","), HPC_FINALIZER) {
+		return nil
+	}
+	hpcJob.Finalizers = append(hpcJob.Finalizers, HPC_FINALIZER)
+	_, err := k.Kube.
+		CoreV1().
+		RESTClient().
+		Put().
+		Namespace(hpcJob.Namespace).
+		Resource("hpcjobs").
+		Name(hpcJob.Name).
+		Body(hpcJob).
+		Do(ctx).
+		Get()
+	return err
+}
+
+func (k *KubeClient) RemoveResourceFinalizer(ctx context.Context, hpcJob *v1alpha1.HPCJob) error {
+	newFinalizers := []string{}
+	for _, f := range hpcJob.Finalizers {
+		if f != HPC_FINALIZER {
+			newFinalizers = append(newFinalizers, f)
+		}
+	}
+	hpcJob.Finalizers = newFinalizers
+	_, err := k.Kube.
+		CoreV1().
+		RESTClient().
+		Put().
+		Namespace(hpcJob.Namespace).
+		Resource("hpcjobs").
+		Name(hpcJob.Name).
+		Body(hpcJob).
+		Do(ctx).
+		Get()
+	return err
 }

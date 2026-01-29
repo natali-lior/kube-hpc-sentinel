@@ -74,6 +74,9 @@ func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	case v1alpha1.Failed:
 		return r.handleFailed(ctx, &hpcJob)
 	}
+	if !hpcJob.GetDeletionTimestamp().IsZero() {
+		return r.handleDeleted(ctx, &hpcJob)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -124,27 +127,74 @@ func (r *HPCJobReconciler) handlePending(ctx context.Context, job *v1alpha1.HPCJ
 		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 	if err := r.createHpcPod(ctx, job, allocated); err != nil {
-		log.Ctx(ctx).Error().Msgf("failed to create hpc pod for job [%s]: %v", job.Name, err)
-		return ctrl.Result{}, err
+		if errors.IsConflict(err) {
+			log.Ctx(ctx).Info().Msgf("hpc pod for job [%s] already exists, skipping...", job.Name)
+		} else {
+			log.Ctx(ctx).Error().Msgf("failed to create hpc pod for job [%s]: %v", job.Name, err)
+			return ctrl.Result{}, err
+		}
 	}
 	log.Ctx(ctx).Info().Msgf("successfully created hpc pod for job [%s]", job.Name)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
 func (r *HPCJobReconciler) handleRunning(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
-	_, result, err := r.manageExistingPod(ctx, job)
+	exists, result, err := r.manageExistingPod(ctx, job)
 	if err != nil {
 		return result, err
+	}
+	if !exists {
+		log.Ctx(ctx).Info().Msgf("hpc job [%s] is running but no pod exists, changing status to pending", job.Name)
+		if err := r.updateJobStatus(ctx, job, v1alpha1.Pending); err != nil {
+			return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+		}
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 	}
 	return ctrl.Result{}, nil
 }
 
-func (r *HPCJobReconciler) handleFailed(_ context.Context, _ *v1alpha1.HPCJob) (ctrl.Result, error) {
-	// todo: update counter metric for failed jobs
+func (r *HPCJobReconciler) handleFailed(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+	log.Ctx(ctx).Warn().Msgf("hpc job [%s] is in failed state, performing cleanup", job.Name)
+	err := r.KubeClient.DeletePod(ctx, job.Name, job.Namespace)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Ctx(ctx).Info().Msgf("hpc pod for job [%s] not found during cleanup, skipping...", job.Name)
+		} else {
+			log.Ctx(ctx).Error().Msgf("failed to delete hpc pod for job [%s]: %v", job.Name, err)
+			return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+		}
+	}
+	err = r.updateJobStatus(ctx, job, v1alpha1.Failed)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("failed to update hpc job [%s] status during cleanup: %v", job.Name, err)
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+	}
 	return ctrl.Result{}, nil
 }
 
-func (r *HPCJobReconciler) manageExistingPod(ctx context.Context, job *v1alpha1.HPCJob) (bool, ctrl.Result, error) {
+func (r *HPCJobReconciler) handleDeleted(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
+	pods, err := r.KubeClient.ListPodsByName(ctx, job.Namespace, job.Name)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("failed to list hpc pod for job [%s]: %v", job.Name, err)
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+	}
+	for _, pod := range pods {
+		err := r.KubeClient.DeletePod(ctx, pod.Name, pod.Namespace)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("failed to delete hpc pod [%s]: %v", pod.Name, err)
+			return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+		}
+	}
+	err = r.KubeClient.RemoveResourceFinalizer(ctx, job)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("failed to remove finalizer from hpc job [%s]: %v", job.Name, err)
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+	}
+	log.Ctx(ctx).Info().Msgf("successfully cleaned up hpc job [%s]", job.Name)
+	return ctrl.Result{}, nil
+}
+
+func (r *HPCJobReconciler) manageExistingPod(ctx context.Context, job *v1alpha1.HPCJob) (exists bool, result ctrl.Result, err error) {
 	podExists, err := r.scanPodStatus(ctx, job)
 	if err != nil {
 		return podExists, ctrl.Result{}, err
