@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-hpc-sentinel
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-hpc-sentinel
+  template:
+    metadata:
+      labels:
+        app: kube-hpc-sentinel
+    spec:
+      nodeSelector:
+        hpc-sentinel/node-type: "app" 
+      tolerations:
+        - key: "node-role.kubernetes.io/manager"
+          operator: "Exists"
+          effect: "NoSchedule"
+      serviceAccountName: kube-hpc-sentinel-sa
+      containers:
+      - name: manager
+        image: kube-hpc-sentinel:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-hpc-sentinel-sa
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kube-hpc-sentinel-role
+  namespace: default
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["hpc.sentinel.kube"]
+  resources: ["scenarios", "scenarios/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kube-hpc-sentinel-rolebinding
+  namespace: default
+subjects:
+- kind: ServiceAccount
+  name: kube-hpc-sentinel-sa
+  namespace: default
+roleRef:
+  kind: Role
+  name: kube-hpc-sentinel-role
+  apiGroup: rbac.authorization.k8s.io

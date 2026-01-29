@@ -17,10 +17,15 @@ build:
       context: .
       docker:
         dockerfile: build/dcgm-mock-exporter/Dockerfile
+    - image: kube-hpc-sentinel
+      context: .
+      docker:
+        dockerfile: build/manager/Dockerfile
 manifests:
   rawYaml:
     - internal/provisioner/manifests/scenario-manager.yaml
     - internal/provisioner/manifests/dcgm-mock-exporter.yaml
     - internal/provisioner/manifests/grafana-dashboard.yaml
+    - deploy/kube-hpc-sentinel.yaml
 deploy:
   kubectl: {}

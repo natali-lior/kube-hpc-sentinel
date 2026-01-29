@@ -20,11 +20,15 @@ import (
 	"go.yaml.in/yaml/v3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/kind/pkg/cluster"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/cli"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/typed/apiextensions/v1"
 )
 
 //go:embed manifests/kind-config.yaml
@@ -501,4 +505,29 @@ func (k *KindProvider) waitForGpuCapacity(client *kubernetes.Clientset) error {
 			}
 		}
 	}
+}
+
+func (k *KindProvider) MakeInstallCRDs(ctx context.Context, client extensionsclient.CustomResourceDefinitionInterface) error {
+	cmd := exec.CommandContext(ctx, "make", "install")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to run make install: %v, output: %s", err, string(output))
+	}
+	fmt.Println("CRDs applied successfully. Waiting for establishment...")
+
+	crdName := "hpcjob"
+
+	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 1*time.Minute, true, func(ctx context.Context) (bool, error) {
+		crd, err := client.Get(ctx, crdName, metav1.GetOptions{})
+		if err != nil {
+			return false, nil
+		}
+
+		for _, cond := range crd.Status.Conditions {
+			if cond.Type == apiextensionsv1.Established && cond.Status == apiextensionsv1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
 }
