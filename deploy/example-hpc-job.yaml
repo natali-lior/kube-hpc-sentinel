@@ -1,0 +1,15 @@
+apiVersion: hpc.nvidia.com/v1alpha1
+kind: HPCJob
+metadata:
+  name: gpu-burn-test
+  namespace: default
+spec:
+  # The CUDA/MPI container to run
+  image: "fake-hpc-job:latest"
+
+  # Minimum GPUs required on a single node
+  gpuCount: 2
+
+  # Hardware placement requirements
+  # constraints:
+  #   topology: "nvlink"

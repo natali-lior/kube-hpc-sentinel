@@ -21,11 +21,17 @@ build:
       context: .
       docker:
         dockerfile: build/manager/Dockerfile
+    - image: fake-hpc-job
+      context: .
+      docker:
+        dockerfile: build/fake-hpc-job/Dockerfile
 manifests:
   rawYaml:
     - internal/provisioner/manifests/scenario-manager.yaml
     - internal/provisioner/manifests/dcgm-mock-exporter.yaml
     - internal/provisioner/manifests/grafana-dashboard.yaml
     - deploy/kube-hpc-sentinel.yaml
+    - deploy/example-hpc-job.yaml
 deploy:
   kubectl: {}
+

@@ -515,7 +515,7 @@ func (k *KindProvider) MakeInstallCRDs(ctx context.Context, client extensionscli
 	}
 	fmt.Println("CRDs applied successfully. Waiting for establishment...")
 
-	crdName := "hpcjob"
+	crdName := "HPCJob.hpc.nvidia.com"
 
 	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 1*time.Minute, true, func(ctx context.Context) (bool, error) {
 		crd, err := client.Get(ctx, crdName, metav1.GetOptions{})
