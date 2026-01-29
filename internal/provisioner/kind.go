@@ -466,6 +466,11 @@ func (k *KindProvider) restartGPUNodes(client *kubernetes.Clientset) error {
 	}
 
 	for _, node := range nodes.Items {
+		qty := node.Status.Capacity["nvidia.com/gpu"]
+		if qty.Value() > 0 {
+			log.Printf("... Node %s already reporting GPUs. Skipping restart.", node.Name)
+			continue
+		}
 		log.Printf("Restarting Docker container for node: %s", node.Name)
 		cmd := exec.Command("docker", "restart", node.Name)
 		if out, err := cmd.CombinedOutput(); err != nil {

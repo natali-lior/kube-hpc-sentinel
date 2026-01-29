@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	"encoding/json"
+
 	"github.com/natali-lior/kube-hpc-sentinel/api/v1alpha1"
 	"github.com/natali-lior/kube-hpc-sentinel/pkg/config"
 	"github.com/rs/zerolog/log"
@@ -16,16 +18,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"k8s.io/client-go/util/retry"
 )
 
 const (
-	GPU_NODE_LABEL_INDICATOR    = "nvidia.com/gpu.count"
-	GPU_CORES_CAPACITY          = "nvidia.com/gpu"
+	GPU_NODE_LABEL_INDICATOR = "nvidia.com/gpu.count"
+	GPU_CORES_CAPACITY       = "nvidia.com/gpu"
+
+	GPU_NODE_TAINT_KEY          = "nvidia.com/gpu"
 	HIGH_DENSITY_AFFINITY_LABEL = "hpc-sentinel/density"
 	UNHEALTHY_TAINT_KEY         = "hpc-sentinel/unhealthy"
 
@@ -144,13 +148,33 @@ func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.N
 	}, nil
 }
 
-func (k *KubeClient) LabelHighDensityNode(ctx context.Context, gpuNode *corev1.Node, density int) error {
-	if gpuNode.Labels == nil {
-		gpuNode.Labels = make(map[string]string)
+func (k *KubeClient) LabelHighDensityNode(ctx context.Context, nodeName string, density int) error {
+	patchData := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": map[string]string{
+				HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(density),
+			},
+		},
 	}
-	gpuNode.Labels[HIGH_DENSITY_AFFINITY_LABEL] = fmt.Sprint(density)
-	_, err := k.Kube.CoreV1().Nodes().Update(ctx, gpuNode, metav1.UpdateOptions{})
-	return err
+
+	playloadBytes, err := json.Marshal(patchData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal patch: %w", err)
+	}
+
+	_, err = k.Kube.CoreV1().Nodes().Patch(
+		ctx,
+		nodeName,
+		types.MergePatchType,
+		playloadBytes,
+		metav1.PatchOptions{},
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to patch node %s: %w", nodeName, err)
+	}
+
+	return nil
 }
 
 func (k *KubeClient) CreatePod(ctx context.Context, pod *v1.Pod) error {
@@ -165,36 +189,45 @@ func (k *KubeClient) GetPod(ctx context.Context, name string, namespace string) 
 
 func (k *KubeClient) IsolateUnhealthyNodes(ctx context.Context, unhealthyNodes []corev1.Node) error {
 	l := log.Ctx(ctx)
+
 	for _, node := range unhealthyNodes {
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			found := false
-			for _, t := range node.Spec.Taints {
-				if t.Key == UNHEALTHY_TAINT_KEY {
-					found = true
-					break
-				}
-			}
-			if !found {
-				node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
-					Key:    UNHEALTHY_TAINT_KEY,
-					Value:  "true",
-					Effect: corev1.TaintEffectNoSchedule,
-				})
-			}
+		unhealthyTaint := corev1.Taint{
+			Key:    UNHEALTHY_TAINT_KEY,
+			Value:  "true",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
 
-			if node.Labels == nil {
-				node.Labels = make(map[string]string)
-			}
-			node.Labels[HIGH_DENSITY_AFFINITY_LABEL] = "0"
+		patchData := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels": map[string]string{
+					HIGH_DENSITY_AFFINITY_LABEL: "0",
+				},
+			},
+			"spec": map[string]interface{}{
+				"taints": []corev1.Taint{unhealthyTaint},
+			},
+		}
 
-			_, err := k.Kube.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
-			return err
-		})
+		playloadBytes, err := json.Marshal(patchData)
 		if err != nil {
-			l.Error().Err(err).Str("node", node.Name).Msg("failed to isolate unhealthy node")
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to marshal isolation patch")
 			continue
 		}
-		l.Info().Str("node", node.Name).Msg("node isolated and density zeroed")
+
+		_, err = k.Kube.CoreV1().Nodes().Patch(
+			ctx,
+			node.Name,
+			types.StrategicMergePatchType,
+			playloadBytes,
+			metav1.PatchOptions{},
+		)
+
+		if err != nil {
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to patch unhealthy node")
+			continue
+		}
+
+		l.Info().Str("node", node.Name).Msg("node isolated and density zeroed via patch")
 	}
 	return nil
 }
@@ -210,36 +243,54 @@ func (k *KubeClient) IsolateUnhealthyNodes(ctx context.Context, unhealthyNodes [
 // 	return k.Kube.PolicyV1().Evictions(namespace).Evict(ctx, eviction)
 // }
 
-func (k *KubeClient) RestoreHealthyNodes(ctx context.Context, nodeNames []corev1.Node) error {
+func (k *KubeClient) RestoreHealthyNodes(ctx context.Context, healthyNodes []corev1.Node) error {
 	l := log.Ctx(ctx)
-	for _, node := range nodeNames {
-		err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-
-			newTaints := []corev1.Taint{}
-			for _, t := range node.Spec.Taints {
-				if t.Key != UNHEALTHY_TAINT_KEY {
-					newTaints = append(newTaints, t)
-				}
+	for _, node := range healthyNodes {
+		var newTaints []corev1.Taint
+		for _, t := range node.Spec.Taints {
+			if t.Key != UNHEALTHY_TAINT_KEY {
+				newTaints = append(newTaints, t)
 			}
-			node.Spec.Taints = newTaints
-			status, err := k.GetGpuNodeAllocations(ctx, node)
-			if err != nil {
-				return err
-			}
-			available := status.Allocatable - status.Allocated
-			if node.Labels == nil {
-				node.Labels = make(map[string]string)
-			}
-			node.Labels[HIGH_DENSITY_AFFINITY_LABEL] = fmt.Sprint(available)
+		}
 
-			_, err = k.Kube.CoreV1().Nodes().Update(ctx, &node, metav1.UpdateOptions{})
-			return err
-		})
-
+		status, err := k.GetGpuNodeAllocations(ctx, node)
 		if err != nil {
-			l.Error().Err(err).Str("node", node.Name).Msg("failed to restore healthy node")
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to get allocations during restore")
 			continue
 		}
+		available := status.Allocatable - status.Allocated
+
+		patchData := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels": map[string]string{
+					HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(available),
+				},
+			},
+			"spec": map[string]interface{}{
+				"taints": newTaints,
+			},
+		}
+
+		playloadBytes, err := json.Marshal(patchData)
+		if err != nil {
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to marshal restore patch")
+			continue
+		}
+
+		_, err = k.Kube.CoreV1().Nodes().Patch(
+			ctx,
+			node.Name,
+			types.StrategicMergePatchType,
+			playloadBytes,
+			metav1.PatchOptions{},
+		)
+
+		if err != nil {
+			l.Error().Err(err).Str("node", node.Name).Msg("failed to patch node restoration")
+			continue
+		}
+
+		l.Info().Str("node", node.Name).Int64("density", available).Msg("node restored and density updated")
 	}
 	return nil
 }

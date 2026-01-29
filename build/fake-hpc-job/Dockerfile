@@ -1,17 +1,19 @@
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-COPY main.go .
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o fake-hpc-job main.go
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o fake-hpc-job cmd/fake-hpc-job/main.go
 
 FROM alpine:latest
 
-WORKDIR /root/
+WORKDIR /
 
 COPY --from=builder /app/fake-hpc-job .
 
-LABEL org.opencontainers.image.source="https://github.com/hpc-sentinel/fake-hpc-job"
-
-ENTRYPOINT ["./fake-hpc-job"]
+ENTRYPOINT ["/fake-hpc-job"]

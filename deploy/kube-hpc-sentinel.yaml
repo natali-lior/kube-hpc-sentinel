@@ -31,6 +31,9 @@ spec:
           requests:
             cpu: "250m"
             memory: "256Mi"
+        env:
+        - name: PROMETHEUS_ADDRESS
+          value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090" 
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -47,6 +50,9 @@ rules:
 - apiGroups: [""]
   resources: ["pods"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["nodes", "nodes/status"]
+  verbs: ["get", "list", "watch", "update", "patch"]
 - apiGroups: ["hpc.nvidia.com"]
   resources: ["scenarios", "scenarios/status", "hpcjobs", "hpcjobs/status"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -188,13 +188,14 @@ func main() {
 		setupLog.Error(err, "unable to start manager with failing kube client")
 		os.Exit(1)
 	}
+	metricsProvider, err := prometheus.NewMetricsProvider(cfg.PrometheusAddress)
 
 	if err := (&controller.HPCJobReconciler{
 		Client:        mgr.GetClient(),
 		Scheme:        mgr.GetScheme(),
 		Cfg:           cfg,
 		KubeClient:    kubeClient,
-		PromAPIClient: &prometheus.MetricsProvider{},
+		PromAPIClient: metricsProvider,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "HPCJob")
 		os.Exit(1)

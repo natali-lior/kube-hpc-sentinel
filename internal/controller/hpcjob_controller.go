@@ -298,6 +298,14 @@ func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HP
 			Namespace: hpcJob.Namespace,
 		},
 		Spec: corev1.PodSpec{
+			RestartPolicy: corev1.RestartPolicyOnFailure,
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      kube.GPU_NODE_TAINT_KEY,
+					Operator: corev1.TolerationOpExists,
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+			},
 			Affinity: &corev1.Affinity{
 				NodeAffinity: &corev1.NodeAffinity{
 					PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{

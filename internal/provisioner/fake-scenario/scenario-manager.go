@@ -94,7 +94,7 @@ func weightedRand(minH, maxH, minC, maxC float64, chaosWeight float32) float64 {
 }
 
 func (s *ScenarioManager) generateMetrics(nodeName string, gpuId string) string {
-	const chaos = 0.02
+	const chaos = 0.005
 	metrics := []string{
 		/* gpu temperature:
 		too high: gpu slows clocks speed, makes the node x2-x3 times slower,

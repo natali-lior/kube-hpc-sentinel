@@ -31,7 +31,7 @@ manifests:
     - internal/provisioner/manifests/dcgm-mock-exporter.yaml
     - internal/provisioner/manifests/grafana-dashboard.yaml
     - deploy/kube-hpc-sentinel.yaml
-    - deploy/example-hpc-job.yaml
+    # - deploy/example-hpc-job.yaml
 deploy:
   kubectl: {}
 
