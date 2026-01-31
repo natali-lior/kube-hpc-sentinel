@@ -41,17 +41,22 @@ func ListGPUNodes(ctx context.Context, kubeClient *kube.KubeClient, promClient *
 			continue
 		}
 
+		healthy := true
+
 		for gpuCore, metrics := range gpuCores {
 			for metric, value := range metrics {
 				healthRange := prom.HealthMetrics[metric]
 				if value < healthRange.Min || value > healthRange.Max {
 					log.Ctx(ctx).Warn().Msgf("gpu node %s gpu %s unhealthy metric %s = %f (expected range %f - %f)",
 						gpuNode.Name, gpuCore, metric, value, healthRange.Min, healthRange.Max)
-					unhealthyNodes = append(unhealthyNodes, gpuNode)
-				} else {
-					healthyNodes = append(healthyNodes, gpuNode)
+					healthy = false
 				}
 			}
+		}
+		if healthy {
+			healthyNodes = append(healthyNodes, gpuNode)
+		} else {
+			unhealthyNodes = append(unhealthyNodes, gpuNode)
 		}
 	}
 
