@@ -59,6 +59,10 @@ func (r *HPCJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	hpcJob, err := r.fetchCRDResource(ctx, req)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			l.Info().Msg("HPCJob resource not found. It might have been deleted. Performing cleanup.")
+			return r.handleDeletedByName(ctx, req.Name, req.Namespace)
+		}
 		l.Error().Msg("Failed to fetch HPCJob")
 		return ctrl.Result{}, nil
 	}
@@ -88,16 +92,9 @@ func (r *HPCJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func (r *HPCJobReconciler) fetchCRDResource(ctx context.Context, req ctrl.Request) (v1alpha1.HPCJob, error) {
-	l := log.Ctx(ctx)
 	var hpcJob v1alpha1.HPCJob
-	if err := r.Get(ctx, req.NamespacedName, &hpcJob); err != nil {
-		if errors.IsNotFound(err) {
-			l.Info().Msg("HPCJob resource not found. Skipping...")
-			return hpcJob, err
-		}
-		return hpcJob, err
-	}
-	return hpcJob, nil
+	err := r.Get(ctx, req.NamespacedName, &hpcJob)
+	return hpcJob, err
 }
 
 func (r *HPCJobReconciler) handlePending(ctx context.Context, job *v1alpha1.HPCJob) (ctrl.Result, error) {
@@ -194,6 +191,23 @@ func (r *HPCJobReconciler) handleDeleted(ctx context.Context, job *v1alpha1.HPCJ
 	return ctrl.Result{}, nil
 }
 
+func (r *HPCJobReconciler) handleDeletedByName(ctx context.Context, name string, ns string) (ctrl.Result, error) {
+	pods, err := r.KubeClient.ListPodsByName(ctx, ns, name)
+	if err != nil {
+		log.Ctx(ctx).Error().Msgf("failed to list hpc pod for job [%s]: %v", name, err)
+		return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+	}
+	for _, pod := range pods {
+		err := r.KubeClient.DeletePod(ctx, pod.Name, pod.Namespace)
+		if err != nil {
+			log.Ctx(ctx).Error().Msgf("failed to delete hpc pod [%s]: %v", pod.Name, err)
+			return ctrl.Result{RequeueAfter: 5 * time.Minute}, err
+		}
+	}
+	log.Ctx(ctx).Info().Msgf("successfully cleaned up hpc job [%s]", name)
+	return ctrl.Result{}, nil
+}
+
 func (r *HPCJobReconciler) manageExistingPod(ctx context.Context, job *v1alpha1.HPCJob) (exists bool, result ctrl.Result, err error) {
 	podExists, err := r.scanPodStatus(ctx, job)
 	if err != nil {
@@ -250,23 +264,26 @@ func (r *HPCJobReconciler) fetchNodesAndSyncStatus(ctx context.Context, job *v1a
 	if err != nil {
 		return nil, err
 	}
+	log.Ctx(ctx).Info().Msgf("fetched gpu node health status for hpc job [%s]: healthy nodes=%d, unhealthy nodes=%d", job.Name, len(healthy), len(nonHealthy))
 	SyncNodeHealthStatus(ctx, r.KubeClient, healthy, nonHealthy)
 	return healthy, nil
 }
 
-func (r *HPCJobReconciler) calculateClusterCapacityForJob(ctx context.Context, healthyNodes []corev1.Node, requiredCapacity int64) (int, bool) {
+func (r *HPCJobReconciler) calculateClusterCapacityForJob(ctx context.Context, healthyNodes []corev1.Node, requiredCapacity int64) (allocated int, hasCapacity bool) {
 	candidates := []int{}
+	var err error
 	for _, node := range healthyNodes {
 		nodeAllocatable := r.KubeClient.GetNodeAllocatableGPUs(ctx, node)
+		allocated := 0
 		if node.Labels == nil {
 			if nodeAllocatable >= requiredCapacity {
 				candidates = append(candidates, 1)
 			}
 		} else {
 			if val, ok := node.Labels[kube.HIGH_DENSITY_AFFINITY_LABEL]; ok {
-				allocated, err := strconv.Atoi(val)
+				allocated, err = strconv.Atoi(val)
 				if err != nil {
-					log.Ctx(ctx).Error().Msgf("failed to parse high density affinity label on node [%s]: %v", node.Name, err)
+					continue
 				}
 				if nodeAllocatable-int64(allocated) >= requiredCapacity {
 					candidates = append(candidates, allocated)
@@ -287,9 +304,9 @@ func (r *HPCJobReconciler) calculateClusterCapacityForJob(ctx context.Context, h
 	}
 }
 
-func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HPCJob, score int) error {
-	if score > 0 {
-		score -= 1
+func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HPCJob, allocated int) error {
+	if allocated > 0 {
+		allocated -= 1
 	}
 	gpuQuantity := resource.MustParse(strconv.Itoa(int(hpcJob.Spec.GPUCount)))
 	hpcPod := &corev1.Pod{
@@ -316,7 +333,7 @@ func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HP
 									{
 										Key:      kube.HIGH_DENSITY_AFFINITY_LABEL,
 										Operator: corev1.NodeSelectorOpGt,
-										Values:   []string{fmt.Sprint(score)},
+										Values:   []string{fmt.Sprint(allocated)},
 									},
 								},
 							},
@@ -326,8 +343,9 @@ func (r *HPCJobReconciler) createHpcPod(ctx context.Context, hpcJob *v1alpha1.HP
 			},
 			Containers: []corev1.Container{
 				{
-					Name:  hpcJob.Name,
-					Image: hpcJob.Spec.Image,
+					Name:            hpcJob.Name,
+					Image:           hpcJob.Spec.Image,
+					ImagePullPolicy: corev1.PullIfNotPresent,
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
 							kube.GPU_CORES_CAPACITY: gpuQuantity,

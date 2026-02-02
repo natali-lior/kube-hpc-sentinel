@@ -130,9 +130,9 @@ func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.N
 	if err != nil {
 		return GpuResourceStatus{}, err
 	}
-	var allocatedCount int64
+	var allocatedCount int64 = 0
 	for _, pod := range podList.Items {
-		if pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		if pod.Status.Phase != corev1.PodRunning && pod.Status.Phase != corev1.PodPending && pod.Status.Phase != corev1.PodFailed {
 			continue
 		}
 		for _, container := range pod.Spec.Containers {
@@ -146,35 +146,6 @@ func (k *KubeClient) GetGpuNodeAllocations(ctx context.Context, gpuNode corev1.N
 		Allocated:   allocatedCount,
 		Allocatable: allocatableCount,
 	}, nil
-}
-
-func (k *KubeClient) LabelHighDensityNode(ctx context.Context, nodeName string, density int) error {
-	patchData := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels": map[string]string{
-				HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(density),
-			},
-		},
-	}
-
-	playloadBytes, err := json.Marshal(patchData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal patch: %w", err)
-	}
-
-	_, err = k.Kube.CoreV1().Nodes().Patch(
-		ctx,
-		nodeName,
-		types.MergePatchType,
-		playloadBytes,
-		metav1.PatchOptions{},
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to patch node %s: %w", nodeName, err)
-	}
-
-	return nil
 }
 
 func (k *KubeClient) CreatePod(ctx context.Context, pod *v1.Pod) error {
@@ -260,13 +231,13 @@ func (k *KubeClient) RestoreHealthyNodes(ctx context.Context, healthyNodes []cor
 		}
 		available := status.Allocatable - status.Allocated
 
-		patchData := map[string]interface{}{
-			"metadata": map[string]interface{}{
+		patchData := map[string]any{
+			"metadata": map[string]any{
 				"labels": map[string]string{
-					HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(available),
+					HIGH_DENSITY_AFFINITY_LABEL: fmt.Sprint(status.Allocated),
 				},
 			},
-			"spec": map[string]interface{}{
+			"spec": map[string]any{
 				"taints": newTaints,
 			},
 		}

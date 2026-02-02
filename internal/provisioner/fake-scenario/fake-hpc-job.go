@@ -22,16 +22,16 @@ func FakeHpcProcess() {
 		fmt.Printf("🔄 [Iteration %d/%d] Computing fast Fourier transform on matrix 0x%X...\n", i, iterations, rand.Intn(1000000))
 
 		nonsenseSum := 0
-		for j := 0; j < 1000000; j++ {
+		for j := 0; j < 3; j++ {
 			nonsenseSum += j
 		}
 
 		fmt.Printf("⏳ Sleeping to let the 'GPU' cool down... (%dms)\n", rand.Intn(1000)+500)
-		time.Sleep(time.Duration(rand.Intn(2000)) * time.Millisecond)
+		time.Sleep(time.Duration(5 * time.Minute))
 	}
 
 	fmt.Println("✅ Calculation complete. Synchronizing results across nodes...")
-	time.Sleep(1 * time.Second)
+	time.Sleep(5 * time.Second)
 	fmt.Println("🎉 Job finished successfully. Exiting 0.")
 	os.Exit(0)
 }
