@@ -1,0 +1,2 @@
+1. for some reason i see an endless loop of node patches at the begining of multiple deployments to cluster
+2. i am not sure that the affinity label flow works well

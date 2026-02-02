@@ -26,6 +26,10 @@ manifests:
     - internal/provisioner/manifests/grafana-dashboard.yaml
     - deploy/kube-hpc-sentinel.yaml
     - deploy/example-hpc-job.yaml
+    - deploy/example-hpc-job-1.yaml
+    - deploy/example-hpc-job-2.yaml
+    - deploy/example-hpc-job-3.yaml
+    - deploy/example-hpc-job-4.yaml
   
 deploy:
   kubectl:
