@@ -1,13 +1,13 @@
 apiVersion: hpc.nvidia.com/v1alpha1
 kind: HPCJob
 metadata:
-  name: test-image-process
+  name: test-chain-reasoning
   namespace: default
 spec:
   image: fake-hpc-job
 
   # Minimum GPUs required on a single node
-  gpuCount: 2
+  gpuCount: 4
 
   # Hardware placement requirements
   # constraints:
